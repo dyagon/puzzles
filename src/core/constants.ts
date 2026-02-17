@@ -8,7 +8,7 @@ export const ROWS = 29 // 2个半角 + 27个整角 = 29个逻辑单元
 export const COLS = 10 
 // 画布尺寸
 export const BOARD_WIDTH = 10 * TRI_H;
-export const BOARD_HEIGHT = 14 * SIDE_A
+export const BOARD_HEIGHT = Math.floor(ROWS / 2) * SIDE_A
 
 // 颜色配置
 export const COLORS = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#1A535C', '#F7FFF7'] as const

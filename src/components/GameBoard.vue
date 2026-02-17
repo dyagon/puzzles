@@ -5,14 +5,14 @@
       :viewBox="`0 0 ${boardWidth} ${boardHeight}`"
       preserveAspectRatio="xMidYMid meet"
     >
-      <g v-for="(col, c) in props.grid" :key="c">
+      <g v-for="(col, c) in gameGrid?.cells" :key="c">
         <polygon
-          v-for="(cell, r) in col"
+          v-for="(_cell, r) in col"
           :key="`${c}-${r}`"
           :points="getTrianglePoints(c, r)"
-          :fill="cell.color"
-          stroke="#fff"
-          stroke-width="1"
+          :fill="getCellColor(c, r)"
+          :stroke="getCellStroke(c, r)"
+          :stroke-width="getCellStrokeWidth(c, r)"
           class="triangle-cell"
           @click="handleCellClick(c, r)"
           @mouseenter="handleCellEnter(c, r)"
@@ -23,53 +23,86 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref } from 'vue'
+import { computed } from 'vue'
+import { useGameStore } from '../stores/gameStore'
 import { getTrianglePoints, getNeighbors } from '../core/draw'
-import type { Cell } from './Cell'
+import type { GameGrid } from '../core/GameGrid'
 import { TRI_H, SIDE_A } from '../core/constants'
+import { cloneGameGrid, getColorAt } from '../core/gameGridUtils'
 
 interface Props {
   rows: number
   cols: number
-  grid: Cell[][]
+  grid: GameGrid | null
+  highlightCells?: Array<{ r: number; c: number; color: string }>
 }
 
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
-  'update:grid': [grid: Cell[][]]
+  'update:grid': [grid: GameGrid]
   step: []
 }>()
 
-// 注入全局状态
-const mode = inject<ReturnType<typeof ref<'EDIT' | 'PLAY'>>>('gameMode')
-const selectedColor = inject<ReturnType<typeof ref<string>>>('selectedColor')
-const spaceHeld = inject<ReturnType<typeof ref<boolean>>>('spaceHeld')
-
-if (!mode || !selectedColor || !spaceHeld) {
-  throw new Error('GameBoard: 缺少必需的全局状态')
-}
-
-// 类型断言，确保值存在
-const modeValue = mode as ReturnType<typeof ref<'EDIT' | 'PLAY'>>
-const selectedColorValue = selectedColor as ReturnType<typeof ref<string>>
-const spaceHeldValue = spaceHeld as ReturnType<typeof ref<boolean>>
+// 使用 store
+const gameStore = useGameStore()
 
 // 计算画布尺寸
-const boardWidth = computed(() => props.cols * TRI_H)
-const boardHeight = computed(() => 14 * SIDE_A)
+const boardWidth = computed(() => (props.grid?.cols || 0) * TRI_H)
+const boardHeight = computed(() => Math.floor((props.grid?.rows || 0) / 2) * SIDE_A)
 
-// 创建 grid 的本地副本用于修改
-const localGrid = computed(() => props.grid)
+// 获取 gameGrid
+const gameGrid = computed(() => props.grid)
+
+// 获取 cell 的颜色字符串
+const getCellColor = (c: number, r: number): string => {
+  if (!gameGrid.value) return '#fff'
+  return getColorAt(gameGrid.value, r, c)
+}
+
+// 获取 cell 的边框颜色
+const getCellStroke = (c: number, r: number): string => {
+  if (!props.highlightCells || props.highlightCells.length === 0) {
+    return '#fff'
+  }
+  
+  const highlightCell = props.highlightCells.find(
+    cell => cell.c === c && cell.r === r
+  )
+  
+  if (highlightCell) {
+    return highlightCell.color
+  }
+  
+  return '#fff'
+}
+
+// 获取 cell 的边框宽度
+const getCellStrokeWidth = (c: number, r: number): number => {
+  if (!props.highlightCells || props.highlightCells.length === 0) {
+    return 1
+  }
+  
+  const highlightCell = props.highlightCells.find(
+    cell => cell.c === c && cell.r === r
+  )
+  
+  if (highlightCell) {
+    return 3 // 高亮时使用更粗的边框
+  }
+  
+  return 1
+}
 
 const paintCell = (c: number, r: number) => {
-  const newGrid = localGrid.value.map(col => col.map(cell => ({ ...cell })))
-  newGrid[c][r].color = selectedColorValue.value!
-  emit('update:grid', newGrid)
+  if (!gameGrid.value) return
+  const newGameGrid = cloneGameGrid(gameGrid.value)
+  newGameGrid.cells[c][r].colorIndex = gameStore.selectedColorIndex
+  emit('update:grid', newGameGrid)
 }
 
 const handleCellEnter = (c: number, r: number) => {
-  if (modeValue.value === 'EDIT' && spaceHeldValue.value) {
+  if (gameStore.mode === 'EDIT' && gameStore.spaceHeld) {
     paintCell(c, r)
   }
 }
@@ -77,14 +110,15 @@ const handleCellEnter = (c: number, r: number) => {
 const floodFill = (
   startC: number,
   startR: number,
-  oldColor: string,
-  newColor: string
+  oldColorIndex: number,
+  newColorIndex: number
 ) => {
-  const newGrid = localGrid.value.map(col => col.map(cell => ({ ...cell })))
+  if (!gameGrid.value) return
+  const newGameGrid = cloneGameGrid(gameGrid.value)
   const queue = [{ r: startR, c: startC }]
   const visited = new Set<string>()
 
-  newGrid[startC][startR].color = newColor
+  newGameGrid.cells[startC][startR].colorIndex = newColorIndex
   visited.add(`${startR},${startC}`)
 
   while (queue.length > 0) {
@@ -96,33 +130,34 @@ const floodFill = (
       if (visited.has(nKey)) continue
 
       // 边界检查：确保坐标在有效范围内
-      if (n.c < 0 || n.c >= props.cols || n.r < 0 || n.r >= props.rows) continue
-      if (!newGrid[n.c] || !newGrid[n.c][n.r]) continue
+      if (n.c < 0 || n.c >= gameGrid.value.cols || n.r < 0 || n.r >= gameGrid.value.rows) continue
+      if (!newGameGrid.cells[n.c] || !newGameGrid.cells[n.c][n.r]) continue
 
-      const cell = newGrid[n.c][n.r]
-      if (cell.color === oldColor) {
-        cell.color = newColor
+      const cell = newGameGrid.cells[n.c][n.r]
+      if (cell.colorIndex === oldColorIndex) {
+        cell.colorIndex = newColorIndex
         visited.add(nKey)
         queue.push(n)
       }
     }
   }
   
-  emit('update:grid', newGrid)
+  emit('update:grid', newGameGrid)
 }
 
 const handleCellClick = (c: number, r: number) => {
-  const cell = localGrid.value[c][r]
+  if (!gameGrid.value) return
+  const cell = gameGrid.value.cells[c][r]
   if (!cell) return
   
-  const targetColor = cell.color
-  const newColor = selectedColorValue.value!
+  const targetColorIndex = cell.colorIndex
+  const newColorIndex = gameStore.selectedColorIndex
 
-  if (modeValue.value === 'EDIT') {
+  if (gameStore.mode === 'EDIT') {
     paintCell(c, r)
   } else {
-    if (targetColor === newColor) return
-    floodFill(c, r, targetColor, newColor)
+    if (targetColorIndex === newColorIndex) return
+    floodFill(c, r, targetColorIndex, newColorIndex)
     emit('step')
   }
 }
@@ -147,7 +182,7 @@ const handleCellClick = (c: number, r: number) => {
 
 .triangle-cell {
   cursor: pointer;
-  transition: fill 0.2s;
+  transition: fill 0.2s, stroke-width 0.15s, stroke 0.15s;
 }
 
 .triangle-cell:hover {
