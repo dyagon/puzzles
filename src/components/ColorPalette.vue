@@ -12,8 +12,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useGameStore } from '../stores/gameStore'
-import { COLORS } from '../core/constants'
+import { useGameStore, COLORS } from '../stores/gameStore'
 
 const gameStore = useGameStore()
 

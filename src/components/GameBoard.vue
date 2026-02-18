@@ -5,11 +5,11 @@
       :viewBox="`0 0 ${boardWidth} ${boardHeight}`"
       preserveAspectRatio="xMidYMid meet"
     >
-      <g v-for="(col, c) in gameGrid?.cells" :key="c">
+      <g v-for="(col, c) in gameGrid?.grid" :key="c">
         <polygon
-          v-for="(_cell, r) in col"
+          v-for="(_colorIndex, r) in col"
           :key="`${c}-${r}`"
-          :points="getTrianglePoints(c, r)"
+          :points="gameGrid?.getTrianglePoints(c, r) ?? ''"
           :fill="getCellColor(c, r)"
           :stroke="getCellStroke(c, r)"
           :stroke-width="getCellStrokeWidth(c, r)"
@@ -25,10 +25,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useGameStore } from '../stores/gameStore'
-import { getTrianglePoints, getNeighbors } from '../core/draw'
 import type { GameGrid } from '../core/GameGrid'
-import { TRI_H, SIDE_A } from '../core/constants'
-import { cloneGameGrid, getColorAt } from '../core/gameGridUtils'
+import { TRI_H } from '../core/GameGrid'
 
 interface Props {
   rows: number
@@ -49,7 +47,7 @@ const gameStore = useGameStore()
 
 // 计算画布尺寸
 const boardWidth = computed(() => (props.grid?.cols || 0) * TRI_H)
-const boardHeight = computed(() => Math.floor((props.grid?.rows || 0) / 2) * SIDE_A)
+const boardHeight = computed(() => props.grid?.height ?? 0)
 
 // 获取 gameGrid
 const gameGrid = computed(() => props.grid)
@@ -57,7 +55,7 @@ const gameGrid = computed(() => props.grid)
 // 获取 cell 的颜色字符串
 const getCellColor = (c: number, r: number): string => {
   if (!gameGrid.value) return '#fff'
-  return getColorAt(gameGrid.value, r, c)
+  return gameGrid.value.getColorAt(r, c)
 }
 
 // 获取 cell 的边框颜色
@@ -96,8 +94,8 @@ const getCellStrokeWidth = (c: number, r: number): number => {
 
 const paintCell = (c: number, r: number) => {
   if (!gameGrid.value) return
-  const newGameGrid = cloneGameGrid(gameGrid.value)
-  newGameGrid.cells[c][r].colorIndex = gameStore.selectedColorIndex
+  const newGameGrid = gameGrid.value.clone()
+  newGameGrid.grid[c][r] = gameStore.selectedColorIndex
   emit('update:grid', newGameGrid)
 }
 
@@ -114,43 +112,39 @@ const floodFill = (
   newColorIndex: number
 ) => {
   if (!gameGrid.value) return
-  const newGameGrid = cloneGameGrid(gameGrid.value)
+  const newGameGrid = gameGrid.value.clone()
+  const grid = newGameGrid.grid
   const queue = [{ r: startR, c: startC }]
   const visited = new Set<string>()
 
-  newGameGrid.cells[startC][startR].colorIndex = newColorIndex
+  grid[startC][startR] = newColorIndex
   visited.add(`${startR},${startC}`)
 
   while (queue.length > 0) {
     const curr = queue.shift()!
-    const neighbors = getNeighbors(curr.r, curr.c)
+    const neighbors = newGameGrid.getNeighbors(curr.r, curr.c)
 
     for (const n of neighbors) {
       const nKey = `${n.r},${n.c}`
       if (visited.has(nKey)) continue
 
-      // 边界检查：确保坐标在有效范围内
-      if (n.c < 0 || n.c >= gameGrid.value.cols || n.r < 0 || n.r >= gameGrid.value.rows) continue
-      if (!newGameGrid.cells[n.c] || !newGameGrid.cells[n.c][n.r]) continue
+      if (n.c < 0 || n.c >= gameGrid.value!.cols || n.r < 0 || n.r >= gameGrid.value!.rows) continue
+      if (grid[n.c]?.[n.r] === undefined) continue
 
-      const cell = newGameGrid.cells[n.c][n.r]
-      if (cell.colorIndex === oldColorIndex) {
-        cell.colorIndex = newColorIndex
+      if (grid[n.c][n.r] === oldColorIndex) {
+        grid[n.c][n.r] = newColorIndex
         visited.add(nKey)
         queue.push(n)
       }
     }
   }
-  
+
   emit('update:grid', newGameGrid)
 }
 
 const handleCellClick = (c: number, r: number) => {
   if (!gameGrid.value) return
-  const cell = gameGrid.value.cells[c][r]
-  if (!cell) return
-  
-  const targetColorIndex = cell.colorIndex
+  const targetColorIndex = gameGrid.value.getColorIndex(r, c)
   const newColorIndex = gameStore.selectedColorIndex
 
   if (gameStore.mode === 'EDIT') {

@@ -1,27 +1,28 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { buildGameState } from '../core/calculate'
-import { solve, type Solution, getRegionCells } from '../core/solver'
-import type { GameGrid } from '../core/GameGrid'
-import { ROWS, COLS, COLORS } from '../core/constants'
-import { createGameGrid, cloneGameGrid } from '../core/gameGridUtils'
-import { saveGameToDefault, loadGameFromDefault, listAllGames } from '../utils/gameStorage'
-import type { GameListItem } from '../core/gameData'
+import { GameGrid, type Solution } from '../core/GameGrid'
+
+// 初始化网格所需常量
+export const VSIDE_ROWS = 14
+export const COLS = 10
+export const COLORS = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#1A535C', '#F7FFF7'] as const
+
+const EDIT_STORAGE_KEY = 'kami2-edit-grid'
 
 export const useGameStore = defineStore('game', () => {
-  // 游戏模式
+  // 游戏模式：EDIT 编辑 / PLAY 测试
   const mode = ref<'EDIT' | 'PLAY'>('EDIT')
-  
+
   // 颜色选择（使用索引）
   const selectedColorIndex = ref<number>(0)
-  
+
   // 空格键状态
   const spaceHeld = ref(false)
-  
+
   // 游戏状态
   const gameGrid = ref<GameGrid | null>(null)
   const stepCount = ref(0)
-  
+
   // 求解器状态
   const solution = ref<Solution | null>(null)
   const solving = ref(false)
@@ -30,18 +31,13 @@ export const useGameStore = defineStore('game', () => {
   const initialGameGridForSolution = ref<GameGrid | null>(null)
   const isBlinking = ref(false)
   let blinkTimer: number | null = null
-  
-  // 游戏列表状态
-  const gameList = ref<GameListItem[]>([])
-  const loadingGames = ref(false)
-  const currentGameId = ref<string | null>(null)
-  
+
   // 计算属性
   const regionCount = computed(() => {
     if (mode.value === 'EDIT' || !gameGrid.value) {
       return '-'
     }
-    return buildGameState(gameGrid.value).count
+    return gameGrid.value.getRegionCount()
   })
   
   // 获取当前选中的颜色字符串（用于向后兼容）
@@ -50,9 +46,54 @@ export const useGameStore = defineStore('game', () => {
     return gameGrid.value.colors[selectedColorIndex.value] || COLORS[0]
   })
   
+  /** 从 localStorage 读取编辑状态，无效或不存在返回 null */
+  const loadEditState = (): GameGrid | null => {
+    try {
+      const raw = localStorage.getItem(EDIT_STORAGE_KEY)
+      if (!raw) return null
+      const data = JSON.parse(raw) as { rows: number; cols: number; colors: string[]; grid: number[][] }
+      if (!data?.grid?.length || !data?.colors?.length) return null
+      return GameGrid.fromJSON(data)
+    } catch {
+      return null
+    }
+  }
+
+  /** 将当前编辑状态写入 localStorage（仅在编辑模式且有 grid 时） */
+  const saveEditState = () => {
+    if (mode.value !== 'EDIT' || !gameGrid.value) return
+    try {
+      localStorage.setItem(EDIT_STORAGE_KEY, JSON.stringify(gameGrid.value.toJSON()))
+    } catch {
+      // ignore
+    }
+  }
+
+  /** 进入编辑模式时：优先从 localStorage 恢复，否则初始化新网格 */
+  const loadEditStateOrInit = () => {
+    const loaded = loadEditState()
+    if (loaded) {
+      gameGrid.value = loaded
+      stepCount.value = 0
+      selectedStepIndex.value = null
+      highlightCells.value = []
+      initialGameGridForSolution.value = null
+      if (blinkTimer !== null) {
+        clearInterval(blinkTimer)
+        blinkTimer = null
+      }
+      isBlinking.value = false
+    } else {
+      initGrid()
+    }
+  }
+
   // Actions
   const setMode = (newMode: 'EDIT' | 'PLAY') => {
     mode.value = newMode
+    if (newMode === 'EDIT') {
+      loadEditStateOrInit()
+    }
   }
   
   const setSelectedColorIndex = (index: number) => {
@@ -74,6 +115,7 @@ export const useGameStore = defineStore('game', () => {
   
   const setGameGrid = (newGameGrid: GameGrid) => {
     gameGrid.value = newGameGrid
+    saveEditState()
   }
   
   const incrementStepCount = () => {
@@ -84,21 +126,20 @@ export const useGameStore = defineStore('game', () => {
     stepCount.value = 0
   }
   
-  // 初始化网格
+  // 初始化网格（重置画布）
   const initGrid = () => {
-    gameGrid.value = createGameGrid(ROWS, COLS, COLORS, 0)
+    gameGrid.value = new GameGrid(VSIDE_ROWS, COLS, COLORS)
     stepCount.value = 0
     selectedStepIndex.value = null
     highlightCells.value = []
     initialGameGridForSolution.value = null
     selectedColorIndex.value = 0
-    
-    // 清除闪烁定时器
     if (blinkTimer !== null) {
       clearInterval(blinkTimer)
       blinkTimer = null
     }
     isBlinking.value = false
+    saveEditState()
   }
   
   // 求解函数
@@ -118,12 +159,13 @@ export const useGameStore = defineStore('game', () => {
     isBlinking.value = false
     
     // 保存当前 gameGrid 状态作为求解的初始状态
-    initialGameGridForSolution.value = cloneGameGrid(gameGrid.value)
+    initialGameGridForSolution.value = gameGrid.value.clone()
     
     // 使用setTimeout让UI更新，然后执行求解
+    const grid = gameGrid.value
     setTimeout(() => {
       try {
-        const result = solve(gameGrid.value!)
+        const result = grid?.solve() ?? null
         solution.value = result
         
         if (result) {
@@ -159,10 +201,9 @@ export const useGameStore = defineStore('game', () => {
     const step = solution.value.path[index]
     
     // 使用求解时的初始 gameGrid 状态来计算区域（因为解决方案是基于初始状态的）
-    const regionCells = getRegionCells(
-      initialGameGridForSolution.value, 
-      step.region.c, 
-      step.region.r
+    const regionCells = initialGameGridForSolution.value.getRegionCells(
+      step.region.r,
+      step.region.c
     )
     
     // 设置高亮信息（使用步骤的目标颜色作为边框颜色）
@@ -215,73 +256,7 @@ export const useGameStore = defineStore('game', () => {
     }
     isBlinking.value = false
   }
-  
-  // 保存游戏（编辑模式）
-  const saveGame = async () => {
-    if (!gameGrid.value) return
-    
-    try {
-      const savedId = await saveGameToDefault(gameGrid.value, solution.value || undefined)
-      // 刷新游戏列表
-      await refreshGameList()
-      return savedId
-    } catch (error) {
-      console.error('保存游戏失败:', error)
-      throw error
-    }
-  }
-  
-  // 加载游戏列表
-  const refreshGameList = async () => {
-    loadingGames.value = true
-    try {
-      gameList.value = await listAllGames()
-    } catch (error) {
-      console.error('加载游戏列表失败:', error)
-    } finally {
-      loadingGames.value = false
-    }
-  }
-  
-  // 加载游戏（游戏模式）
-  const loadGame = async (gameId: string) => {
-    try {
-      const gameData = await loadGameFromDefault(gameId)
-      if (!gameData) {
-        throw new Error(`游戏 ${gameId} 不存在`)
-      }
-      
-      // 加载初始状态
-      gameGrid.value = cloneGameGrid(gameData.initialGrid)
-      stepCount.value = 0
-      currentGameId.value = gameId
-      
-      // 如果有最优解，加载它
-      if (gameData.solution) {
-        solution.value = gameData.solution
-        // 保存初始状态用于显示步骤
-        initialGameGridForSolution.value = cloneGameGrid(gameData.initialGrid)
-      } else {
-        solution.value = null
-        initialGameGridForSolution.value = null
-      }
-      
-      // 清除高亮
-      selectedStepIndex.value = null
-      highlightCells.value = []
-      if (blinkTimer !== null) {
-        clearInterval(blinkTimer)
-        blinkTimer = null
-      }
-      isBlinking.value = false
-      
-      return gameData
-    } catch (error) {
-      console.error(`加载游戏 ${gameId} 失败:`, error)
-      throw error
-    }
-  }
-  
+
   return {
     // State
     mode,
@@ -295,27 +270,22 @@ export const useGameStore = defineStore('game', () => {
     selectedStepIndex,
     highlightCells,
     isBlinking,
-    gameList,
-    loadingGames,
-    currentGameId,
-    
+
     // Computed
     regionCount,
-    
+
     // Actions
     setMode,
     setSelectedColorIndex,
-    setSelectedColor, // 向后兼容
+    setSelectedColor,
     setSpaceHeld,
     setGameGrid,
     incrementStepCount,
     resetStepCount,
     initGrid,
+    loadEditStateOrInit,
     solvePuzzle,
     selectStep,
-    cleanup,
-    saveGame,
-    refreshGameList,
-    loadGame
+    cleanup
   }
 })
