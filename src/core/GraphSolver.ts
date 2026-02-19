@@ -1,175 +1,269 @@
-import { GameGrid, type Solution } from './GameGrid'
+import { GameGrid } from './GameGrid'
+import { GraphBuilder, RegionNode } from './GraphBuilder'
 
-// 简单的图节点定义
-interface RegionNode {
-  id: number
-  color: number
-  size: number // 该区域包含的格子数（启发式搜索可用）
-  neighbors: Set<number> // 邻居节点的 ID
-}
 
-export class GraphSolver {
-  private readonly nodes: Map<number, RegionNode> = new Map()
-  private initialRegionCount: number = 0
-  /** 每个区域 ID 对应的一个代表格坐标 (r, c)，用于将图解结果映射回棋盘步骤 */
-  private readonly idToCoord: Map<number, { r: number; c: number }> = new Map()
 
-  constructor(private readonly gameGrid: GameGrid) {
-    this.buildGraph()
+/** 求解结果：最少步骤及操作路径 */
+export interface Solution {
+    steps: number
+    path: Array<{
+      region: { r: number; c: number }
+      color: string
+      description: string
+    }>
+  }
+  
+/**
+ * 多岛屿图求解器
+ * 负责协调所有连通分量 (Islands) 的求解，并合并结果
+ */
+export class MultiGraphSolver {
+  private readonly gameGrid: GameGrid
+  private readonly voidColorIndex: number
+  private readonly colorPalette: readonly string[]
+
+  constructor(
+    gameGrid: GameGrid,
+    options?: {
+      voidColorIndex?: number
+      colors?: readonly string[]
+    }
+  ) {
+    this.gameGrid = gameGrid
+    this.voidColorIndex = options?.voidColorIndex ?? -1
+    this.colorPalette = options?.colors ?? []
   }
 
   /**
-   * 将像素网格转换为区域邻接图 (Region Adjacency Graph)
-   * 极大地减小了搜索空间
+   * [主入口] 执行全局求解
    */
-  private buildGraph() {
-    const { rows, cols } = this.gameGrid
-    const grid = this.gameGrid.grid
-    const regionMap = new Int32Array(rows * cols).fill(-1)
-    const getIdx = (r: number, c: number) => c * rows + r
-    
-    let regionIdCounter = 0
-    this.nodes.clear()
+  public solve(): Solution | null {
+    // 1. 拆分连通分量
+    const builder = new GraphBuilder(this.gameGrid, this.voidColorIndex)
+    const islands = builder.buildIslands()
 
-    // 1. BFS/FloodFill 识别所有区域并分配 ID
-    for (let c = 0; c < cols; c++) {
-      for (let r = 0; r < rows; r++) {
-        const idx = getIdx(r, c)
-        if (regionMap[idx] !== -1) continue // 已访问
+    if (islands.length === 0) return { steps: 0, path: [] }
 
-        const color = grid[c][r]
-        const currentId = regionIdCounter++
-        const node: RegionNode = { id: currentId, color, size: 0, neighbors: new Set() }
-        this.nodes.set(currentId, node)
-        this.idToCoord.set(currentId, { r, c })
+    // --- 优化分支：只有一个岛屿时，目标颜色不限 ---
+    if (islands.length === 1) {
+      // 直接对唯一的岛屿求解，targetColor 传 null，表示“任意单色皆可”
+      return this.solveSingleIsland(islands[0], null, 0)
+    }
 
-        // 局部 BFS 找当前连通块
-        const queue = [{ r, c }]
-        regionMap[idx] = currentId
-        node.size++
+    // --- 常规分支：多个岛屿，必须枚举统一的目标色 ---
+    const allColors = new Set<number>()
+    for (const island of islands) {
+      for (const node of island.values()) {
+        allColors.add(node.color)
+      }
+    }
 
-        let head = 0
-        while (head < queue.length) {
-          const curr = queue[head++]
-          const neighbors = this.gameGrid.getNeighbors(curr.r, curr.c)
-          for (const n of neighbors) {
-            if (n.c < 0 || n.c >= cols || n.r < 0 || n.r >= rows) continue
-            const nIdx = getIdx(n.r, n.c)
-            
-            // 如果颜色相同，归入当前区域
-            if (grid[n.c][n.r] === color) {
-              if (regionMap[nIdx] === -1) {
-                regionMap[nIdx] = currentId
-                node.size++
-                queue.push(n)
-              }
-            } 
-            // 如果颜色不同，标记邻接关系（稍后处理，或者在这里预处理）
-          }
+    let bestGlobalSolution: Solution | null = null
+
+    for (const targetColor of allColors) {
+      const currentSolution = this.solveGlobalForTarget(islands, targetColor)
+      
+      if (currentSolution) {
+        if (
+          bestGlobalSolution === null ||
+          currentSolution.steps < bestGlobalSolution.steps
+        ) {
+          bestGlobalSolution = currentSolution
         }
       }
     }
 
-    this.initialRegionCount = regionIdCounter
-
-    // 2. 建立区域间的邻接关系
-    for (let c = 0; c < cols; c++) {
-      for (let r = 0; r < rows; r++) {
-        const currentId = regionMap[getIdx(r, c)]
-        const neighbors = this.gameGrid.getNeighbors(r, c)
-        for (const n of neighbors) {
-          if (n.c < 0 || n.c >= cols || n.r < 0 || n.r >= rows) continue
-          const neighborId = regionMap[getIdx(n.r, n.c)]
-          if (currentId !== neighborId) {
-            this.nodes.get(currentId)!.neighbors.add(neighborId)
-            this.nodes.get(neighborId)!.neighbors.add(currentId)
-          }
-        }
-      }
-    }
+    return bestGlobalSolution
   }
 
   /**
-   * 使用 IDA* (Iterative Deepening A*) 求解
+   * 计算将所有岛屿统一为指定 targetColor 的总代价
    */
-  solve(maxDepthLimit: number = 10): { steps: number; path: any[] } | null {
-    // 初始状态哈希
-    const initialStateKey = this.serializeState(this.nodes)
-    
-    // 迭代加深：先搜1步能解吗？不能搜2步... 直到上限
-    for (let limit = 0; limit <= maxDepthLimit; limit++) {
-      const result = this.dfs(this.nodes, 0, limit, [])
+  private solveGlobalForTarget(
+    islands: Map<number, RegionNode>[],
+    targetColor: number
+  ): Solution | null {
+    let totalSteps = 0
+    const globalPath: Solution['path'] = []
+
+    for (let islandIndex = 0; islandIndex < islands.length; islandIndex++) {
+      const island = islands[islandIndex]
+      const result = this.solveSingleIsland(island, targetColor, islandIndex)
+      
+      if (!result) return null
+
+      totalSteps += result.steps
+      globalPath.push(...result.path)
+    }
+
+    return { steps: totalSteps, path: globalPath }
+  }
+
+  /**
+   * [核心算法] 针对单个岛屿的 IDA* 求解
+   * @param targetColor 如果为 null，表示只要变成任意单色即可
+   */
+  private solveSingleIsland(
+    nodes: Map<number, RegionNode>,
+    targetColor: number | null,
+    islandIndex: number
+  ): Solution | null {
+    // 1. 初始状态检查
+    const distinctColors = new Set<number>()
+    let hasTarget = false
+    for (const n of nodes.values()) {
+      distinctColors.add(n.color)
+      if (targetColor !== null && n.color === targetColor) hasTarget = true
+    }
+
+    // 成功条件：只剩一种颜色
+    if (distinctColors.size === 1) {
+        // 如果指定了颜色，必须匹配；没指定颜色，任意单色即成功
+        const finalColor = nodes.values().next().value!.color
+        if (targetColor === null || finalColor === targetColor) {
+            return { steps: 0, path: [] }
+        }
+    }
+
+    // 2. IDA* 迭代加深搜索
+    const maxDepth = 20 
+    for (let limit = 0; limit <= maxDepth; limit++) {
+      const result = this.dfs(nodes, 0, limit, [], targetColor, islandIndex)
       if (result) return result
     }
+
     return null
   }
 
   /**
-   * 深度优先搜索，但是在图层面上，且带有状态回溯
+   * 深度优先搜索 (DFS)
    */
   private dfs(
-    currentNodes: Map<number, RegionNode>,
-    depth: number,
+    nodes: Map<number, RegionNode>,
+    g: number,
     limit: number,
-    path: any[]
-  ): { steps: number; path: any[] } | null {
-    
-    // 1. 成功条件：只剩下一个连通区域
-    if (currentNodes.size === 1) {
-      return { steps: depth, path }
+    path: any[],
+    targetColor: number | null,
+    islandIndex: number
+  ): Solution | null {
+
+    // --- 1. 计算当前状态特征 ---
+    const distinctColors = new Set<number>()
+    let currentHasTarget = false
+    let firstNode: RegionNode | null = null
+
+    for (const n of nodes.values()) {
+      if (!firstNode) firstNode = n
+      distinctColors.add(n.color)
+      if (targetColor !== null && n.color === targetColor) currentHasTarget = true
     }
 
-    // 2. 剪枝
-    // 估价函数 h(n)：当前图中剩下的颜色数量 - 1 (或者区域数相关的更强估价)
-    // 如果 当前步数 + 最少还需要步数 > 限制，则剪枝
-    const h = this.heuristic(currentNodes)
-    if (depth + h > limit) return null
-
-    // 3. 寻找所有可能的移动
-    // 优化策略：只尝试将某个区域变成它的“邻居”的颜色
-    // 对于 Kami 这里的逻辑是：点击一个区域，将其变成另一种颜色。
-    // 有效移动通常是：将区域 A 变成其邻居 B 的颜色，从而合并 A 和 B。
-    
-    // 为了避免全图遍历，我们可以在这里做一些贪心排序：优先合并导致邻居减少最多的操作
-    // 这里为了演示逻辑，遍历所有节点（实际可优化为只遍历“活跃”节点）
-    
-    // 注意：在图结构中，“染色”实际上是“节点合并”
-    
-    // 我们需要一个去重机制，避免重复搜索同一状态
-    // (由于 IDA* 这里的状态管理较复杂，简化版直接递归)
-
-    const moves = this.getPossibleMoves(currentNodes)
-    
-    for (const move of moves) {
-      // 执行移动：生成新图
-      const nextNodes = this.applyMove(currentNodes, move.regionId, move.targetColor)
+    // --- 2. 终止条件判定 ---
+    if (nodes.size === 1) {
+      const finalColor = firstNode!.color
       
-      const res = this.dfs(nextNodes, depth + 1, limit, [
-        ...path, 
-        { regionId: move.regionId, color: move.targetColor } // 此时只能存 ID，最后再映射回坐标
-      ])
+      // 情况 A: 不需要指定颜色 (null) 或者 颜色已匹配
+      if (targetColor === null || finalColor === targetColor) {
+        return { steps: g, path: this.formatPath(path) }
+      }
+      
+      // 情况 B: 指定了目标色，但当前是别的纯色 (说明初始图中没有目标色)
+      // 需要额外一步：转色
+      if (g + 1 <= limit) {
+        const extraStep = {
+          regionId: firstNode!.id,
+          color: targetColor,
+          representative: firstNode!.representative
+        }
+        return { steps: g + 1, path: this.formatPath([...path, extraStep]) }
+      } else {
+        return null 
+      }
+    }
+
+    // --- 3. 启发式剪枝 (h函数) ---
+    let h = 0
+    if (targetColor === null) {
+        // 模式：任意单色。h = 颜色数 - 1
+        h = distinctColors.size - 1
+    } else {
+        // 模式：指定目标色。
+        // 含目标色 -> h = distinct - 1
+        // 不含目标色 -> h = distinct (先归一，再转色)
+        h = currentHasTarget ? distinctColors.size - 1 : distinctColors.size
+    }
+    
+    if (g + h > limit) return null
+
+    // --- 4. 生成移动 ---
+    const moves = this.getPossibleMoves(nodes)
+
+    for (const move of moves) {
+      const nextNodes = this.applyMove(nodes, move.regionId, move.color)
+      
+      const res = this.dfs(
+        nextNodes,
+        g + 1,
+        limit,
+        [...path, move],
+        targetColor,
+        islandIndex
+      )
       if (res) return res
     }
 
     return null
   }
 
-  // 估价函数：最少还需要几步？
-  // 最简单的：图中还剩下的不同颜色数量 - 1。如果剩3种颜色，至少还要染2次。
-  private heuristic(nodes: Map<number, RegionNode>): number {
-    const colors = new Set<number>()
-    for (const node of nodes.values()) {
-      colors.add(node.color)
+  /**
+   * 执行图合并 (逻辑不变)
+   */
+  private applyMove(
+    nodes: Map<number, RegionNode>,
+    targetId: number,
+    newColor: number
+  ): Map<number, RegionNode> {
+    const newNodes = new Map<number, RegionNode>()
+    for (const [id, n] of nodes) {
+      newNodes.set(id, { ...n, neighbors: new Set(n.neighbors) })
     }
-    return Math.max(0, colors.size - 1)
+
+    const targetNode = newNodes.get(targetId)!
+    targetNode.color = newColor
+
+    const neighborsToMerge: number[] = []
+    for (const nId of targetNode.neighbors) {
+      if (newNodes.get(nId)!.color === newColor) {
+        neighborsToMerge.push(nId)
+      }
+    }
+
+    for (const mergeId of neighborsToMerge) {
+      const mergedNode = newNodes.get(mergeId)!
+      targetNode.size += mergedNode.size
+      
+      for (const neighborOfMergedId of mergedNode.neighbors) {
+        if (neighborOfMergedId !== targetId) {
+          targetNode.neighbors.add(neighborOfMergedId)
+          const remoteNode = newNodes.get(neighborOfMergedId)!
+          remoteNode.neighbors.delete(mergeId)
+          remoteNode.neighbors.add(targetId)
+        }
+      }
+      targetNode.neighbors.delete(mergeId)
+      newNodes.delete(mergeId)
+    }
+    
+    targetNode.neighbors.delete(targetId)
+    return newNodes
   }
 
-  // 获取有效移动：(regionId, targetColor)
+  /**
+   * 获取可行移动列表 (逻辑不变)
+   */
   private getPossibleMoves(nodes: Map<number, RegionNode>) {
-    const moves: { regionId: number; targetColor: number; score: number }[] = []
+    const moves: { regionId: number; color: number; score: number; representative: any }[] = []
     
-    // 策略：只允许将区域变成它邻居的颜色
-    // 遍历所有区域
     for (const node of nodes.values()) {
       const neighborColors = new Set<number>()
       for (const nId of node.neighbors) {
@@ -177,99 +271,30 @@ export class GraphSolver {
         if (neighbor) neighborColors.add(neighbor.color)
       }
 
-      for (const color of neighborColors) {
-        // 简单启发式：优先合并邻居多的
-        moves.push({ regionId: node.id, targetColor: color, score: 0 })
+      for (const c of neighborColors) {
+        moves.push({
+          regionId: node.id,
+          color: c,
+          score: node.size,
+          representative: node.representative
+        })
       }
     }
-    
-    // 可以在这里对 moves 进行排序，优先尝试更有希望的路径
-    return moves
+    return moves.sort((a, b) => b.score - a.score)
   }
 
-  /**
-   * 核心逻辑：在图上执行合并
-   * 这是一个纯函数，返回新的图结构，不修改入参
-   */
-  private applyMove(nodes: Map<number, RegionNode>, targetId: number, newColor: number): Map<number, RegionNode> {
-    // 浅拷贝 Map，但节点需要深拷贝（因为会修改 neighbors）
-    // 为了性能，这里是优化的关键点。完全克隆图太慢。
-    // 通常做法是使用 Immutable 数据结构，或者记录 "Undo" 操作。
-    // 考虑到 JS 性能，这里用“克隆受影响部分”的策略。
-    
-    const newNodes = new Map<number, RegionNode>()
-    // 先复制所有节点引用
-    for (const [id, node] of nodes) {
-      newNodes.set(id, { ...node, neighbors: new Set(node.neighbors) })
-    }
-
-    const targetNode = newNodes.get(targetId)!
-    targetNode.color = newColor
-
-    // 查找所有现在颜色变成 newColor 的邻居，进行合并（跳过已不存在的 id，防止上一轮合并遗留的陈旧引用）
-    const neighborsToMerge: number[] = []
-    for (const nId of targetNode.neighbors) {
-      const neighbor = newNodes.get(nId)
-      if (neighbor && neighbor.color === newColor) {
-        neighborsToMerge.push(nId)
+  private formatPath(rawPath: any[]): Solution['path'] {
+    return rawPath.map((step, index) => {
+      const colorStr = this.getColorString(step.color)
+      return {
+        region: step.representative,
+        color: colorStr,
+        description: `Step ${index + 1}: Fill region at (${step.representative.r}, ${step.representative.c}) with ${colorStr}`
       }
-    }
-
-    // 合并操作：将 neighborsToMerge 都吞并到 targetNode 中
-    for (const mergeId of neighborsToMerge) {
-      const mergeNode = newNodes.get(mergeId)!
-      targetNode.size += mergeNode.size
-      targetNode.neighbors.delete(mergeId) // 被合并的节点将从图中移除，避免后续读到已删除的 id
-
-      // 将被合并节点的邻居转给 targetNode
-      for (const deepNeighborId of mergeNode.neighbors) {
-        if (deepNeighborId !== targetId) {
-          targetNode.neighbors.add(deepNeighborId)
-          // 反向更新：让远端邻居指向 targetId 而不是 mergeId
-          const deepNeighbor = newNodes.get(deepNeighborId)!
-          deepNeighbor.neighbors.delete(mergeId)
-          deepNeighbor.neighbors.add(targetId)
-        }
-      }
-      // 从图中删除被合并的节点
-      newNodes.delete(mergeId)
-    }
-
-    // 清理 targetNode 自己的邻居表（不能包含自己）
-    targetNode.neighbors.delete(targetId)
-
-    return newNodes
+    })
   }
 
-  // 辅助：生成状态指纹用于判重（可选，视性能而定）
-  private serializeState(nodes: Map<number, RegionNode>): string {
-    // 简单的序列化：排序后的 ID+Color 列表
-    // 更好的方式可能是 Zobrist Hash
-    const parts: string[] = []
-    for (const node of nodes.values()) {
-      parts.push(`${node.id}:${node.color}`) // 简化，实际应该包含邻接关系
-    }
-    return parts.sort().join('|')
-  }
-  
-  /**
-   * 将图搜索的结果转换为 GameGrid.Solution 格式（含 region 坐标与颜色字符串）
-   */
-  public toSolution(
-    graphPath: { regionId: number; color: number }[],
-    colors: readonly string[]
-  ): Solution {
-    return {
-      steps: graphPath.length,
-      path: graphPath.map(p => {
-        const region = this.idToCoord.get(p.regionId) ?? { r: 0, c: 0 }
-        const colorStr = colors[p.color] ?? colors[0] ?? '#fff'
-        return {
-          region,
-          color: colorStr,
-          description: `将位置(${region.r}, ${region.c})所在的区域染成 ${colorStr}`,
-        }
-      }),
-    }
+  private getColorString(colorIndex: number): string {
+    return this.colorPalette[colorIndex] ?? `#Color${colorIndex}`
   }
 }

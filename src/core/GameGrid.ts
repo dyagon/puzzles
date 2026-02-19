@@ -1,19 +1,11 @@
-import { UnionFind } from './UnionFind'
 
 // 几何常数
 export const SIDE_A = 56 // 边长 a (像素)
 export const HALF_A = SIDE_A / 2 // 半宽 (水平步进单位)
 export const TRI_H = (Math.sqrt(3) / 2) * SIDE_A // 高 h
 
-/** 求解结果：最少步骤及操作路径 */
-export interface Solution {
-  steps: number
-  path: Array<{
-    region: { r: number; c: number }
-    color: string
-    description: string
-  }>
-}
+/** 空白颜色索引：-1 表示空白，空白区域不参与连通性计算 */
+export const EMPTY_COLOR_INDEX = -1
 
 /** DFS 求解时的性能统计（用于观察/打印） */
 export interface SolvePerformance {
@@ -40,9 +32,8 @@ export class GameGrid {
   readonly cols: number
   /** 颜色数量，由全局状态（调色板）决定；grid 中索引均小于此值 */
   readonly colorCount: number
-  /** grid[col][row] = colorIndex，唯一会修改处为 floodFill */
+  /** grid[row][col] = colorIndex，唯一会修改处为 floodFill */
   grid: number[][]
-  uf: UnionFind
 
   constructor(
     vside_rows: number,
@@ -55,10 +46,9 @@ export class GameGrid {
     this.height = vside_rows * SIDE_A
     this.cols = cols
     this.colorCount = Math.max(1, colorCount)
-    this.grid = grid ?? Array.from({ length: cols }, () =>
-      Array.from({ length: this.rows }, () => 0)
+    this.grid = grid ?? Array.from({ length: this.rows }, () =>
+      Array.from({ length: cols }, () => 0)
     )
-    this.uf = this.buildUnionFind()
   }
 
   /**
@@ -106,12 +96,13 @@ export class GameGrid {
   }
 
   getColorIndex(r: number, c: number): number {
-    return this.grid[c]?.[r] ?? 0
+    return this.grid[r]?.[c] ?? 0
   }
 
-  /** 根据外部颜色表取格子的颜色字符串（颜色表由全局状态提供） */
+  /** 根据外部颜色表取格子的颜色字符串（颜色表由全局状态提供），空白返回透明 */
   getColorAt(r: number, c: number, colors: readonly string[]): string {
     const idx = this.getColorIndex(r, c)
+    if (idx === EMPTY_COLOR_INDEX) return 'transparent'
     return colors[idx] ?? colors[0] ?? '#fff'
   }
 
@@ -121,7 +112,7 @@ export class GameGrid {
       this.vside_rows,
       this.cols,
       this.colorCount,
-      this.grid.map(col => [...col])
+      this.grid.map(row => [...row])
     )
   }
 
@@ -131,11 +122,11 @@ export class GameGrid {
       rows: this.rows,
       cols: this.cols,
       colorCount: this.colorCount,
-      grid: this.grid.map(col => [...col])
+      grid: this.grid.map(row => [...row])
     }
   }
 
-  /** 从 JSON 反序列化（支持旧格式 data.colors 或新格式 data.colorCount） */
+  /** 从 JSON 反序列化（支持旧格式列优先 grid[col][row]，自动转为行优先） */
   static fromJSON(data: {
     rows: number
     cols: number
@@ -145,82 +136,42 @@ export class GameGrid {
   }): GameGrid {
     const vside_rows = (data.rows - 1) >> 1
     const colorCount = data.colors?.length ?? data.colorCount ?? 1
-    return new GameGrid(
-      vside_rows,
-      data.cols,
-      colorCount,
-      data.grid.map(col => [...col])
-    )
-  }
-
-  /** 根据当前 grid 构建并查集（仅用于初始化或 clone 后的 uf） */
-  buildUnionFind(): UnionFind {
-    const { rows, cols, grid } = this
-    const totalCells = rows * cols
-    if (!grid?.length || grid.length < cols || !grid[0]?.length || grid[0].length < rows) {
-      return new UnionFind(totalCells)
+    const rows = data.rows
+    const cols = data.cols
+    // 旧格式：grid.length === cols，每列长度 === rows → 转为行优先
+    let grid = data.grid
+    if (grid.length === cols && grid[0]?.length === rows) {
+      grid = Array.from({ length: rows }, (_, r) =>
+        Array.from({ length: cols }, (_, c) => data.grid[c][r])
+      )
+    } else {
+      grid = data.grid.map(row => [...row])
     }
-    const uf = new UnionFind(totalCells)
-    const idx = (r: number, c: number) => r * cols + c
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (grid[c]?.[r] === undefined) continue
-        const currentIdx = idx(r, c)
-        const currentColorIndex = grid[c][r]
-        for (const n of this.getNeighbors(r, c)) {
-          if (n.r >= 0 && n.r < rows && n.c >= 0 && n.c < cols && grid[n.c]?.[n.r] !== undefined) {
-            const neighborIdx = idx(n.r, n.c)
-            if (currentColorIndex === grid[n.c][n.r]) {
-              uf.union(currentIdx, neighborIdx)
-            }
-          }
-        }
-      }
-    }
-    return uf
-  }
-
-  /** 联通区域数量（直接读维护的并查集） */
-  getRegionCount(): number {
-    return this.uf.count
+    return new GameGrid(vside_rows, data.cols, colorCount, grid)
   }
 
   /** 状态字符串（用于 BFS 去重） */
   getStateKey(): string {
-    return this.grid.map(col => col.join(',')).join('|')
+    return this.grid.map(row => row.join(',')).join('|')
   }
 
-  /** 将 (startR, startC) 所在联通区域染成新颜色，原地修改 grid 并更新并查集 uf，不返回新网格 */
+  /** 将 (startR, startC) 所在联通区域染成新颜色，原地修改 grid，不返回新网格 */
   floodFill(startR: number, startC: number, newColorIndex: number): void {
     const g = this.grid
     const oldColorIndex = this.getColorIndex(startR, startC)
     if (oldColorIndex === newColorIndex) return
-    const idx = (r: number, c: number) => r * this.cols + c
-    const startIdx = idx(startR, startC)
-    g[startC][startR] = newColorIndex
-    for (const nb of this.getNeighbors(startR, startC)) {
-      if (nb.r >= 0 && nb.r < this.rows && nb.c >= 0 && nb.c < this.cols && g[nb.c]?.[nb.r] === newColorIndex) {
-        this.uf.union(startIdx, idx(nb.r, nb.c))
-      }
-    }
+    g[startR][startC] = newColorIndex
     const queue: { r: number; c: number }[] = [{ r: startR, c: startC }]
     const visited = new Set<string>()
     visited.add(`${startR},${startC}`)
     while (queue.length > 0) {
       const curr = queue.shift()!
-      const currIdx = idx(curr.r, curr.c)
       for (const n of this.getNeighbors(curr.r, curr.c)) {
         const nKey = `${n.r},${n.c}`
         if (visited.has(nKey)) continue
-        if (n.c < 0 || n.c >= this.cols || n.r < 0 || n.r >= this.rows || g[n.c]?.[n.r] === undefined) continue
-        if (g[n.c][n.r] === oldColorIndex) {
-          g[n.c][n.r] = newColorIndex
-          this.uf.union(currIdx, idx(n.r, n.c))
-          for (const nb of this.getNeighbors(n.r, n.c)) {
-            if (nb.r >= 0 && nb.r < this.rows && nb.c >= 0 && nb.c < this.cols && g[nb.c]?.[nb.r] === newColorIndex) {
-              this.uf.union(idx(n.r, n.c), idx(nb.r, nb.c))
-            }
-          }
+        if (n.c < 0 || n.c >= this.cols || n.r < 0 || n.r >= this.rows || g[n.r]?.[n.c] === undefined) continue
+        if (g[n.r][n.c] === oldColorIndex) {
+          g[n.r][n.c] = newColorIndex
           visited.add(nKey)
           queue.push(n)
         }
@@ -229,10 +180,12 @@ export class GameGrid {
   }
 
 
-  /** 指定位置所在区域的所有格子坐标 */
+  /** 指定位置所在区域的所有格子坐标，空白区域返回空数组 */
   getRegionCells(startR: number, startC: number): { r: number; c: number }[] {
-    const cells: { r: number; c: number }[] = []
     const targetColorIndex = this.getColorIndex(startR, startC)
+    // 空白区域不返回
+    if (targetColorIndex === EMPTY_COLOR_INDEX) return []
+    const cells: { r: number; c: number }[] = []
     const queue = [{ r: startR, c: startC }]
     const visited = new Set<string>()
     visited.add(`${startR},${startC}`)
@@ -243,7 +196,7 @@ export class GameGrid {
         const nKey = `${n.r},${n.c}`
         if (visited.has(nKey)) continue
         if (n.c < 0 || n.c >= this.cols || n.r < 0 || n.r >= this.rows) continue
-        if (this.grid[n.c]?.[n.r] === targetColorIndex) {
+        if (this.grid[n.r]?.[n.c] === targetColorIndex) {
           visited.add(nKey)
           cells.push({ r: n.r, c: n.c })
           queue.push(n)
@@ -253,31 +206,4 @@ export class GameGrid {
     return cells
   }
 
-  // /**
-  //  * DFS 求解：回溯 + 剪枝，返回最少步数解。
-  //  * 进入下一状态前存储当前 grid 与 uf，然后 floodFill 原地更新，回溯时恢复状态。
-  //  * @param options.logPerformance 为 true 时在控制台打印性能统计
-  //  * @param options.onProgress 每访问一定数量状态时回调（可用来打点观察进度）
-  //  */
-  // solve(options?: { ... }): Solution | null {
-  //   // 1. 如果区域很少，直接返回
-  //   if (this.getRegionCount() <= 1) return { steps: 0, path: [] };
-    
-  //   // 2. 实例化图解算器
-  //   const graphSolver = new GraphSolver(this);
-    
-  //   // 3. 运行 IDA* 求解
-  //   // 假设最大步数限制为 15，避免死锁
-  //   const graphResult = graphSolver.solve(15); 
-    
-  //   if (!graphResult) return null;
- 
-  //   // 4. 将图解算结果转换为 Solution 格式
-  //   // 这一步你需要维护一个 ID -> (r,c) 的映射来填充 region 字段
-  //   // 以及通过 colorIndex 获取 options.colors 中的字符串
-    
-  //   // ... 转换逻辑 ...
-    
-  //   return finalSolution;
-  // }
 }

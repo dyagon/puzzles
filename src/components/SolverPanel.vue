@@ -1,5 +1,28 @@
 <template>
   <div class="solver-panel">
+    <!-- 当前阶段提示 -->
+    <div v-if="gameStore.solving || gameStore.graphInfo" class="phase-hint">
+      <template v-if="gameStore.solvePhase === 'building'">步骤 1：构建图中…</template>
+      <template v-else-if="gameStore.solvePhase === 'solving'">步骤 2：求解中（状态间隔输出到控制台）…</template>
+      <template v-else-if="gameStore.graphInfo && !gameStore.solution">步骤 1 已完成，步骤 2 进行中…</template>
+      <template v-else-if="gameStore.solution">步骤 3：已得到解</template>
+    </div>
+
+    <!-- 步骤 1：图信息（构建完成后显示） -->
+    <div v-if="gameStore.graphInfo" class="solve-info graph-info">
+      <div class="info-title">图信息</div>
+      <div class="info-row"><span class="info-label">孤岛数量：</span>{{ gameStore.graphInfo.islandCount }}</div>
+      <div class="info-row"><span class="info-label">联通区域数量：</span>{{ gameStore.graphInfo.regionCount }}</div>
+      <div class="info-row"><span class="info-label">各岛屿节点数：</span>{{ gameStore.graphInfo.perIslandSizes.join(', ') }}</div>
+    </div>
+
+    <!-- 步骤 3：解信息（得到解后显示） -->
+    <div v-if="gameStore.solutionMetadata" class="solve-info">
+      <div class="info-title">解信息</div>
+      <div class="info-row"><span class="info-label">最少步数：</span>{{ gameStore.solution?.steps ?? '-' }}</div>
+      <div class="info-row"><span class="info-label">解法：</span>{{ gameStore.solutionMetadata.method }}</div>
+    </div>
+
     <!-- 游戏模式：显示求解按钮或最优解 -->
     <template v-if="gameStore.mode === 'PLAY'">
       <button 
@@ -66,6 +89,41 @@ const handleStepClick = (index: number) => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.phase-hint {
+  font-size: 0.85rem;
+  color: #666;
+  padding: 6px 0;
+}
+
+.solve-info {
+  padding: 12px;
+  background: #fff;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.solve-info.graph-info {
+  background: #f8f9fa;
+}
+
+.info-title {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.info-row {
+  color: #333;
+}
+
+.info-label {
+  color: #666;
+  margin-right: 4px;
 }
 
 .solve-button {

@@ -5,10 +5,10 @@
       :viewBox="`0 0 ${boardWidth} ${boardHeight}`"
       preserveAspectRatio="xMidYMid meet"
     >
-      <g v-for="(col, c) in gameGrid?.grid" :key="c">
+      <g v-for="(row, r) in gameGrid?.grid" :key="r">
         <polygon
-          v-for="(_colorIndex, r) in col"
-          :key="`${c}-${r}`"
+          v-for="(_colorIndex, c) in row"
+          :key="`${r}-${c}`"
           :points="gameGrid?.getTrianglePoints(c, r) ?? ''"
           :fill="getCellColor(c, r)"
           :stroke="getCellStroke(c, r)"
@@ -95,7 +95,7 @@ const getCellStrokeWidth = (c: number, r: number): number => {
 const paintCell = (c: number, r: number) => {
   if (!gameGrid.value) return
   const newGameGrid = gameGrid.value.clone()
-  newGameGrid.grid[c][r] = gameStore.selectedColorIndex
+  newGameGrid.grid[r][c] = gameStore.selectedColorIndexForGrid
   emit('update:grid', newGameGrid)
 }
 
@@ -120,7 +120,7 @@ const floodFill = (
 const handleCellClick = (c: number, r: number) => {
   if (!gameGrid.value) return
   const targetColorIndex = gameGrid.value.getColorIndex(r, c)
-  const newColorIndex = gameStore.selectedColorIndex
+  const newColorIndex = gameStore.selectedColorIndexForGrid
 
   if (gameStore.mode === 'EDIT') {
     paintCell(c, r)

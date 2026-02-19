@@ -1,28 +1,25 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
-import { GameGrid, type Solution } from '../core/GameGrid'
-import { GraphSolver } from '../core/GraphSolver'
+import { GameGrid, EMPTY_COLOR_INDEX} from '../core/GameGrid'
+import { GraphBuilder } from '../core/GraphBuilder'
+import { MultiGraphSolver, type Solution  } from '../core/GraphSolver'
+
+/** 选中空白时的 selectedColorIndex 值 */
+export const EMPTY_SELECTION_INDEX = -1
 
 // 初始化网格所需常量
 export const VSIDE_ROWS = 14
 export const COLS = 10
 /** 编辑模式下默认颜色数量（可增删，至少 1 个） */
-export const DEFAULT_COLORS = ['#FF6B6B', '#4ECDC4', '#FFE66D'] as const
+export const DEFAULT_COLORS = [
+  '#CDBBA6', '#58ACB1', '#326E77', '#A52343', '#D4A329',
+'#33332F', '#D9C29F', '#118E71', '#B82A30', '#888682',
+'#C16A29', '#D1A500', '#7B9824', '#355027', '#90C1C0',
+'#493B2F', '#B6462A', '#78B7B1', '#C58733', '#C8B29C' ] as const
 /** 向后兼容：若 grid 未加载则 fallback */
 export const COLORS = DEFAULT_COLORS
 
 const EDIT_STORAGE_KEY = 'kami2-edit-grid'
-
-const PRESET_COLORS = [
-  '#FF6B6B', '#4ECDC4', '#FFE66D', '#1A535C', '#F7FFF7',
-  '#95E1D3', '#F38181', '#AA96DA', '#FCBAD3', '#A8D8EA'
-]
-
-function randomNewColor(existing: readonly string[]): string {
-  const pool = PRESET_COLORS.filter(c => !existing.includes(c))
-  if (pool.length > 0) return pool[Math.floor(Math.random() * pool.length)]
-  return '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')
-}
 
 export const useGameStore = defineStore('game', () => {
   // 游戏模式：EDIT 编辑 / PLAY 测试
@@ -43,6 +40,12 @@ export const useGameStore = defineStore('game', () => {
 
   // 求解器状态
   const solution = ref<Solution | null>(null)
+  /** 求解结果元数据：孤岛数、联通区域数、解法名称 */
+  const solutionMetadata = ref<{ islandCount: number; regionCount: number; method: string } | null>(null)
+  /** 步骤1 构建图后的图信息（用于 UI 显示） */
+  const graphInfo = ref<{ islandCount: number; regionCount: number; perIslandSizes: number[] } | null>(null)
+  /** 当前求解阶段：idle | building | solving | done */
+  const solvePhase = ref<'idle' | 'building' | 'solving' | 'done'>('idle')
   const solving = ref(false)
   const selectedStepIndex = ref<number | null>(null)
   const highlightCells = ref<Array<{ r: number; c: number; color: string }>>([])
@@ -55,14 +58,22 @@ export const useGameStore = defineStore('game', () => {
     if (mode.value === 'EDIT' || !gameGrid.value) {
       return '-'
     }
-    return gameGrid.value.getRegionCount()
+    return gameGrid.value.getRegionCells(0, 0).length
   })
   
-  // 获取当前选中的颜色字符串（用于向后兼容）
+  // 获取当前选中的颜色字符串（用于向后兼容），空白返回特殊标记
   const selectedColor = computed(() => {
+    if (selectedColorIndex.value === EMPTY_SELECTION_INDEX) return 'transparent'
     const pal = paletteColors.value
     if (!pal.length) return DEFAULT_COLORS[0]
     return pal[selectedColorIndex.value] ?? pal[0]
+  })
+
+  /** 获取用于网格的实际颜色索引（空白选择转换为 EMPTY_COLOR_INDEX） */
+  const selectedColorIndexForGrid = computed(() => {
+    return selectedColorIndex.value === EMPTY_SELECTION_INDEX 
+      ? EMPTY_COLOR_INDEX 
+      : selectedColorIndex.value
   })
 
   /** 从 localStorage 读取编辑状态，无效或不存在返回 null；会设置 paletteColors */
@@ -97,9 +108,12 @@ export const useGameStore = defineStore('game', () => {
     if (loaded) {
       gameGrid.value = markRaw(loaded)
       stepCount.value = 0
+      solution.value = null
       selectedStepIndex.value = null
       highlightCells.value = []
       initialGameGridForSolution.value = null
+      solutionMetadata.value = null
+      graphInfo.value = null
       if (blinkTimer !== null) {
         clearInterval(blinkTimer)
         blinkTimer = null
@@ -119,7 +133,8 @@ export const useGameStore = defineStore('game', () => {
   }
   
   const setSelectedColorIndex = (index: number) => {
-    if (index >= 0 && index < paletteColors.value.length) {
+    // 允许选择空白（EMPTY_SELECTION_INDEX）或有效颜色索引
+    if (index === EMPTY_SELECTION_INDEX || (index >= 0 && index < paletteColors.value.length)) {
       selectedColorIndex.value = index
     }
   }
@@ -138,44 +153,32 @@ export const useGameStore = defineStore('game', () => {
     saveEditState()
   }
 
-  /** 编辑模式下增加一种颜色（测试模式不可用） */
-  const addColor = () => {
-    if (mode.value !== 'EDIT' || !gameGrid.value) return
-    const pal = paletteColors.value
-    paletteColors.value = [...pal, randomNewColor(pal)]
-    const newGrid = new GameGrid(
-      gameGrid.value.vside_rows,
-      gameGrid.value.cols,
-      paletteColors.value.length,
-      gameGrid.value.grid.map(col => [...col])
-    )
-    gameGrid.value = markRaw(newGrid)
-    saveEditState()
-  }
 
-  /** 编辑模式下删除一种颜色，至少保留 1 个（测试模式不可用） */
-  const removeColor = (index: number) => {
-    if (mode.value !== 'EDIT' || !gameGrid.value) return
-    const pal = paletteColors.value
-    if (pal.length <= 1 || index < 0 || index >= pal.length) return
-    paletteColors.value = pal.filter((_, i) => i !== index)
-    const remap = (v: number): number => {
-      if (v === index) return 0
-      if (v > index) return v - 1
-      return v
+  /** 从候选颜色（如 DEFAULT_COLORS）中勾选得到新调色板，至少保留 1 色；会重映射网格 */
+  const setPaletteFromSelection = (selectedColors: string[]) => {
+    if (mode.value !== 'EDIT' || selectedColors.length < 1) return
+    const oldPal = [...paletteColors.value]
+    paletteColors.value = [...selectedColors]
+    const newCount = selectedColors.length
+    if (gameGrid.value) {
+      const grid = gameGrid.value.grid.map(row =>
+        row.map(v => {
+          const oldHex = oldPal[v]
+          const newIdx = selectedColors.indexOf(oldHex)
+          return newIdx >= 0 ? newIdx : 0
+        })
+      )
+      gameGrid.value = markRaw(
+        new GameGrid(
+          gameGrid.value.vside_rows,
+          gameGrid.value.cols,
+          newCount,
+          grid
+        )
+      )
     }
-    const grid = gameGrid.value.grid.map(col => col.map(remap))
-    const newGrid = new GameGrid(
-      gameGrid.value.vside_rows,
-      gameGrid.value.cols,
-      paletteColors.value.length,
-      grid
-    )
-    gameGrid.value = markRaw(newGrid)
-    if (selectedColorIndex.value >= paletteColors.value.length) {
-      selectedColorIndex.value = paletteColors.value.length - 1
-    } else if (selectedColorIndex.value > index) {
-      selectedColorIndex.value--
+    if (selectedColorIndex.value >= newCount) {
+      selectedColorIndex.value = newCount - 1
     }
     saveEditState()
   }
@@ -188,10 +191,14 @@ export const useGameStore = defineStore('game', () => {
     stepCount.value = 0
   }
   
-  // 初始化网格（重置画布，默认 3 色）
+  // 初始化网格（重置画布，至少 1 色，默认使用第一个颜色填充）
   const initGrid = () => {
     paletteColors.value = [...DEFAULT_COLORS]
-    gameGrid.value = markRaw(new GameGrid(VSIDE_ROWS, COLS, paletteColors.value.length))
+    // 创建网格，所有格子初始化为颜色索引 0（第一个颜色）
+    const initialGrid = Array.from({ length: 2 * VSIDE_ROWS + 1 }, () =>
+      Array.from({ length: COLS }, () => 0)
+    )
+    gameGrid.value = markRaw(new GameGrid(VSIDE_ROWS, COLS, paletteColors.value.length, initialGrid))
     stepCount.value = 0
     selectedStepIndex.value = null
     highlightCells.value = []
@@ -211,6 +218,7 @@ export const useGameStore = defineStore('game', () => {
     
     solving.value = true
     solution.value = null
+    solutionMetadata.value = null
     selectedStepIndex.value = null
     highlightCells.value = []
     
@@ -224,37 +232,67 @@ export const useGameStore = defineStore('game', () => {
     // 保存当前 gameGrid 状态作为求解的初始状态
     initialGameGridForSolution.value = markRaw(gameGrid.value.clone())
     
-    // 使用 setTimeout 让 UI 更新，然后使用 GraphSolver 求解
     const grid = gameGrid.value
     const colors = paletteColors.value
+    graphInfo.value = null
+    solutionMetadata.value = null
+
+
     setTimeout(() => {
       try {
         if (!grid) {
           solution.value = null
           return
         }
-        const graphSolver = new GraphSolver(grid)
-        const graphResult = graphSolver.solve(15)
-        const result: Solution | null = graphResult
-          ? graphSolver.toSolution(graphResult.path, colors)
-          : null
-        solution.value = result
 
-        if (result) {
-          console.log('=== 求解结果 (GraphSolver) ===')
-          console.log(`最少步骤数：${result.steps}`)
-          console.log('解决方案：')
-          result.path.forEach((step, index) => {
-            console.log(`${index + 1}. ${step.description}`)
-          })
-          console.log('===============')
-        } else {
-          console.log('未找到解决方案（可能超过最大搜索深度）')
+        // ——— 步骤 1：构建 islands 图，输出图信息 ———
+        solvePhase.value = 'building'
+        const builder = new GraphBuilder(grid, EMPTY_COLOR_INDEX)
+        const islands = builder.buildIslands()
+        const islandCount = islands.length
+        const regionCount = islands.reduce((sum, isl) => sum + isl.size, 0)
+        const perIslandSizes = islands.map((isl) => isl.size)
+        graphInfo.value = { islandCount, regionCount, perIslandSizes }
+
+        console.log('=== 步骤 1：构建图完成 ===')
+        console.log(`孤岛数量：${islandCount}`)
+        console.log(`联通区域数量：${regionCount}`)
+        console.log(`各岛屿节点数：${perIslandSizes.join(', ')}`)
+        console.log('========================')
+
+        // ——— 步骤 2：求解，间隔打印遍历状态 ———
+        solvePhase.value = 'solving'
+        const solver = new MultiGraphSolver(grid, {
+          voidColorIndex: EMPTY_COLOR_INDEX,
+          colors
+        })
+        const result: Solution | null = solver.solve()
+
+        // ——— 步骤 3：得到解后显示解信息 ———
+        solvePhase.value = 'done'
+        solution.value = result
+        solutionMetadata.value = {
+          islandCount,
+          regionCount,
+          method: 'MultiGraphSolver (IDA*)'
         }
+
+        console.log('=== 步骤 3：求解结果 ===')
+        if (result) {
+          console.log(`最少步数：${result.steps}`)
+          console.log('步骤序列：')
+          result.path.forEach((step, index) => {
+            console.log(`  ${index + 1}. ${step.description}`)
+          })
+        } else {
+          console.log('未找到解（可能超过最大搜索深度）')
+        }
+        console.log('======================')
       } catch (error) {
         console.error('求解过程中出错：', error)
       } finally {
         solving.value = false
+        solvePhase.value = 'idle'
       }
     }, 100)
   }
@@ -329,16 +367,20 @@ export const useGameStore = defineStore('game', () => {
     isBlinking.value = false
   }
 
-  return {
+    return {
     // State
     mode,
     selectedColorIndex,
     selectedColor,
+    selectedColorIndexForGrid,
     paletteColors,
     spaceHeld,
     gameGrid,
     stepCount,
     solution,
+    solutionMetadata,
+    graphInfo,
+    solvePhase,
     solving,
     selectedStepIndex,
     highlightCells,
@@ -353,8 +395,7 @@ export const useGameStore = defineStore('game', () => {
     setSelectedColor,
     setSpaceHeld,
     setGameGrid,
-    addColor,
-    removeColor,
+    setPaletteFromSelection,
     incrementStepCount,
     resetStepCount,
     initGrid,

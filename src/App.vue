@@ -13,25 +13,35 @@
 
     <!-- 右侧：状态 + 控制 统一放一起 -->
     <aside class="right-sidebar">
-      <div class="status-panel">
-        <div class="status-item">联通区域：{{ gameStore.regionCount }}</div>
-        <div v-if="gameStore.mode === 'PLAY'" class="status-item">测试步数：{{ gameStore.stepCount }}</div>
-        <div v-if="gameStore.mode === 'PLAY' && gameStore.solution" class="status-item solution-info">
-          <div>最少步骤：{{ gameStore.solution.steps }}</div>
-        </div>
-      </div>
       <div class="controls">
         <div class="mode-switch">
-          <label>
-            <input type="radio" value="EDIT" :checked="gameStore.mode === 'EDIT'" @change="handleModeChange('EDIT')" /> 编辑
-          </label>
-          <label>
-            <input type="radio" value="PLAY" :checked="gameStore.mode === 'PLAY'" @change="handleModeChange('PLAY')" /> 测试
-          </label>
+          <button
+            type="button"
+            class="mode-btn"
+            :class="{ active: gameStore.mode === 'EDIT' }"
+            @click="handleModeChange('EDIT')"
+          >
+            编辑
+          </button>
+          <button
+            type="button"
+            class="mode-btn"
+            :class="{ active: gameStore.mode === 'PLAY' }"
+            @click="handleModeChange('PLAY')"
+          >
+            测试
+          </button>
         </div>
         <ColorPalette />
-        <span v-if="gameStore.mode === 'EDIT'" class="edit-tip">编辑时按住空格 + 移动鼠标可连续上色</span>
-        <button v-if="gameStore.mode === 'PLAY'" @click="resetGrid">回到编辑状态</button>
+        <span v-if="gameStore.mode === 'EDIT'" class="edit-tip"
+          >编辑时按住空格 + 移动鼠标可连续上色</span
+        >
+        <button v-if="gameStore.mode === 'PLAY'" @click="resetGrid">
+          回到编辑状态
+        </button>
+        <div v-if="gameStore.mode === 'PLAY'" class="status-panel">
+          <div class="status-item">测试步数：{{ gameStore.stepCount }}</div>
+        </div>
         <SolverPanel />
       </div>
     </aside>
@@ -39,48 +49,61 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
-import { useGameStore } from './stores/gameStore'
-import GameBoard from './components/GameBoard.vue'
-import ColorPalette from './components/ColorPalette.vue'
-import SolverPanel from './components/SolverPanel.vue'
+import { onMounted, onUnmounted } from "vue";
+import { useGameStore } from "./stores/gameStore";
+import GameBoard from "./components/GameBoard.vue";
+import ColorPalette from "./components/ColorPalette.vue";
+import SolverPanel from "./components/SolverPanel.vue";
 
-const gameStore = useGameStore()
+const gameStore = useGameStore();
 
 const resetGrid = () => {
-  gameStore.loadEditStateOrInit()
-}
+  gameStore.loadEditStateOrInit();
+};
 
-const handleModeChange = (newMode: 'EDIT' | 'PLAY') => {
-  gameStore.setMode(newMode)
-}
+const handleModeChange = (newMode: "EDIT" | "PLAY") => {
+  gameStore.setMode(newMode);
+};
 
 // 键盘事件处理
 const onKeyDown = (e: KeyboardEvent) => {
-  if (e.code === 'Space') {
-    e.preventDefault()
-    gameStore.setSpaceHeld(true)
+  if (e.code === "Space") {
+    e.preventDefault();
+    gameStore.setSpaceHeld(true);
+    return;
   }
-}
+
+  // 数字键 1-9 选择颜色（仅在编辑模式下）
+  if (gameStore.mode === "EDIT") {
+    const key = e.key;
+    if (key >= "1" && key <= "9") {
+      const colorIndex = Number.parseInt(key, 10) - 1; // '1' -> 0, '2' -> 1, ...
+      if (colorIndex >= 0 && colorIndex < gameStore.paletteColors.length) {
+        e.preventDefault();
+        gameStore.setSelectedColorIndex(colorIndex);
+      }
+    }
+  }
+};
 
 const onKeyUp = (e: KeyboardEvent) => {
-  if (e.code === 'Space') {
-    e.preventDefault()
-    gameStore.setSpaceHeld(false)
+  if (e.code === "Space") {
+    e.preventDefault();
+    gameStore.setSpaceHeld(false);
   }
-}
+};
 
 onMounted(() => {
-  gameStore.loadEditStateOrInit()
-  globalThis.addEventListener('keydown', onKeyDown)
-  globalThis.addEventListener('keyup', onKeyUp)
-})
+  gameStore.loadEditStateOrInit();
+  globalThis.addEventListener("keydown", onKeyDown);
+  globalThis.addEventListener("keyup", onKeyUp);
+});
 
 onUnmounted(() => {
-  globalThis.removeEventListener('keydown', onKeyDown)
-  globalThis.removeEventListener('keyup', onKeyUp)
-  gameStore.cleanup()
-})
+  globalThis.removeEventListener("keydown", onKeyDown);
+  globalThis.removeEventListener("keyup", onKeyUp);
+  gameStore.cleanup();
+});
 </script>
 
 <style scoped>
@@ -92,7 +115,6 @@ onUnmounted(() => {
   box-sizing: border-box;
   overflow: hidden;
 }
-
 
 /* 右侧：状态 + 控制，统一一列 */
 .right-sidebar {
@@ -122,8 +144,38 @@ onUnmounted(() => {
 
 .mode-switch {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-direction: row;
+  gap: 0;
+  width: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #ccc;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  border: none;
+  background: #eee;
+  color: #555;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.mode-btn:first-child {
+  border-right: 1px solid #ccc;
+}
+
+.mode-btn:hover:not(.active) {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.mode-btn.active {
+  background: #4ecdc4;
+  color: white;
+  font-weight: 600;
 }
 
 .edit-tip {
@@ -137,13 +189,13 @@ onUnmounted(() => {
 }
 
 .solution-info {
-  color: #4ECDC4;
+  color: #4ecdc4;
   font-weight: 600;
 }
 
 button {
   padding: 8px 16px;
-  background-color: #4ECDC4;
+  background-color: #4ecdc4;
   color: white;
   border: none;
   border-radius: 4px;
@@ -160,5 +212,4 @@ button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
-
 </style>
