@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
-import { GameGrid, EMPTY_COLOR_INDEX} from '../core/GameGrid'
+import { GameGrid, EMPTY_COLOR_INDEX } from '../core/GameGrid'
+import { type Solution } from '../core/GraphSolver'
+import { SolverClient } from '../core/SolverClient'
 import { GraphBuilder } from '../core/GraphBuilder'
-import { MultiGraphSolver, type Solution  } from '../core/GraphSolver'
 
 /** 选中空白时的 selectedColorIndex 值 */
 export const EMPTY_SELECTION_INDEX = -1
@@ -20,6 +21,8 @@ export const DEFAULT_COLORS = [
 export const COLORS = DEFAULT_COLORS
 
 const EDIT_STORAGE_KEY = 'kami2-edit-grid'
+
+const solverClient = new SolverClient()
 
 export const useGameStore = defineStore('game', () => {
   // 游戏模式：EDIT 编辑 / PLAY 测试
@@ -52,6 +55,7 @@ export const useGameStore = defineStore('game', () => {
   const initialGameGridForSolution = ref<GameGrid | null>(null)
   const isBlinking = ref(false)
   let blinkTimer: number | null = null
+  let editGraphInfoTimer: number | null = null
 
   // 计算属性
   const regionCount = computed(() => {
@@ -129,6 +133,35 @@ export const useGameStore = defineStore('game', () => {
     mode.value = newMode
     if (newMode === 'EDIT') {
       loadEditStateOrInit()
+      // 编辑模式下，如果已有 grid，立即计算图信息
+      if (gameGrid.value) {
+        if (editGraphInfoTimer !== null) {
+          clearTimeout(editGraphInfoTimer)
+        }
+        editGraphInfoTimer = globalThis.setTimeout(() => {
+          if (gameGrid.value && mode.value === 'EDIT') {
+            try {
+              const builder = new GraphBuilder(gameGrid.value, EMPTY_COLOR_INDEX)
+              const islands = builder.buildIslands()
+              const islandCount = islands.length
+              const regionCount = islands.reduce((sum, isl) => sum + isl.size, 0)
+              const perIslandSizes = islands.map((isl) => isl.size)
+              graphInfo.value = { islandCount, regionCount, perIslandSizes }
+            } catch (error) {
+              console.error('计算图信息失败：', error)
+              graphInfo.value = null
+            }
+          }
+          editGraphInfoTimer = null
+        }, 200)
+      }
+    } else {
+      // 切换到测试模式时，清除编辑模式的图信息
+      if (editGraphInfoTimer !== null) {
+        clearTimeout(editGraphInfoTimer)
+        editGraphInfoTimer = null
+      }
+      graphInfo.value = null
     }
   }
   
@@ -151,6 +184,29 @@ export const useGameStore = defineStore('game', () => {
   const setGameGrid = (newGameGrid: GameGrid) => {
     gameGrid.value = markRaw(newGameGrid)
     saveEditState()
+    
+    // 编辑模式下，实时计算图信息（防抖200ms）
+    if (mode.value === 'EDIT') {
+      if (editGraphInfoTimer !== null) {
+        clearTimeout(editGraphInfoTimer)
+      }
+      editGraphInfoTimer = globalThis.setTimeout(() => {
+        if (newGameGrid && mode.value === 'EDIT') {
+          try {
+            const builder = new GraphBuilder(newGameGrid, EMPTY_COLOR_INDEX)
+            const islands = builder.buildIslands()
+            const islandCount = islands.length
+            const regionCount = islands.reduce((sum, isl) => sum + isl.size, 0)
+            const perIslandSizes = islands.map((isl) => isl.size)
+            graphInfo.value = { islandCount, regionCount, perIslandSizes }
+          } catch (error) {
+            console.error('计算图信息失败：', error)
+            graphInfo.value = null
+          }
+        }
+        editGraphInfoTimer = null
+      }, 200)
+    }
   }
 
 
@@ -212,89 +268,51 @@ export const useGameStore = defineStore('game', () => {
     saveEditState()
   }
   
-  // 求解函数
-  const solvePuzzle = () => {
+  // 求解函数：使用 Worker 异步求解，进度通过 SolverClient 直接打印并更新 UI
+  const solvePuzzle = async () => {
     if (!gameGrid.value) return
-    
+
     solving.value = true
+    solvePhase.value = 'building'
     solution.value = null
     solutionMetadata.value = null
     selectedStepIndex.value = null
     highlightCells.value = []
-    
-    // 清除之前的闪烁定时器
+    graphInfo.value = null
+
     if (blinkTimer !== null) {
       clearInterval(blinkTimer)
       blinkTimer = null
     }
     isBlinking.value = false
-    
-    // 保存当前 gameGrid 状态作为求解的初始状态
+
     initialGameGridForSolution.value = markRaw(gameGrid.value.clone())
-    
-    const grid = gameGrid.value
-    const colors = paletteColors.value
-    graphInfo.value = null
-    solutionMetadata.value = null
 
+    try {
+      const result = await solverClient.solve(gameGrid.value, {
+        voidColorIndex: EMPTY_COLOR_INDEX,
+        colors: paletteColors.value
+      })
 
-    setTimeout(() => {
-      try {
-        if (!grid) {
-          solution.value = null
-          return
-        }
+      solvePhase.value = 'done'
+      solution.value = result.solution
+      solutionMetadata.value = result.solutionMetadata
+    } catch (error) {
+      console.error('求解过程中出错：', error)
+      solution.value = null
+      solutionMetadata.value = null
+    } finally {
+      solving.value = false
+      solvePhase.value = 'idle'
+    }
+  }
 
-        // ——— 步骤 1：构建 islands 图，输出图信息 ———
-        solvePhase.value = 'building'
-        const builder = new GraphBuilder(grid, EMPTY_COLOR_INDEX)
-        const islands = builder.buildIslands()
-        const islandCount = islands.length
-        const regionCount = islands.reduce((sum, isl) => sum + isl.size, 0)
-        const perIslandSizes = islands.map((isl) => isl.size)
-        graphInfo.value = { islandCount, regionCount, perIslandSizes }
-
-        console.log('=== 步骤 1：构建图完成 ===')
-        console.log(`孤岛数量：${islandCount}`)
-        console.log(`联通区域数量：${regionCount}`)
-        console.log(`各岛屿节点数：${perIslandSizes.join(', ')}`)
-        console.log('========================')
-
-        // ——— 步骤 2：求解，间隔打印遍历状态 ———
-        solvePhase.value = 'solving'
-        const solver = new MultiGraphSolver(grid, {
-          voidColorIndex: EMPTY_COLOR_INDEX,
-          colors
-        })
-        const result: Solution | null = solver.solve()
-
-        // ——— 步骤 3：得到解后显示解信息 ———
-        solvePhase.value = 'done'
-        solution.value = result
-        solutionMetadata.value = {
-          islandCount,
-          regionCount,
-          method: 'MultiGraphSolver (IDA*)'
-        }
-
-        console.log('=== 步骤 3：求解结果 ===')
-        if (result) {
-          console.log(`最少步数：${result.steps}`)
-          console.log('步骤序列：')
-          result.path.forEach((step, index) => {
-            console.log(`  ${index + 1}. ${step.description}`)
-          })
-        } else {
-          console.log('未找到解（可能超过最大搜索深度）')
-        }
-        console.log('======================')
-      } catch (error) {
-        console.error('求解过程中出错：', error)
-      } finally {
-        solving.value = false
-        solvePhase.value = 'idle'
-      }
-    }, 100)
+  // 终止求解
+  const terminateSolve = () => {
+    solverClient.terminate()
+    solving.value = false
+    solvePhase.value = 'idle'
+    // 不清除 graphInfo，保留已构建的图信息
   }
   
   // 选择步骤并高亮对应的区域（闪烁几次后自动消失）
@@ -364,6 +382,10 @@ export const useGameStore = defineStore('game', () => {
       clearInterval(blinkTimer)
       blinkTimer = null
     }
+    if (editGraphInfoTimer !== null) {
+      clearTimeout(editGraphInfoTimer)
+      editGraphInfoTimer = null
+    }
     isBlinking.value = false
   }
 
@@ -401,6 +423,7 @@ export const useGameStore = defineStore('game', () => {
     initGrid,
     loadEditStateOrInit,
     solvePuzzle,
+    terminateSolve,
     selectStep,
     cleanup
   }

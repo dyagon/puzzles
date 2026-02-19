@@ -7,20 +7,6 @@ export const TRI_H = (Math.sqrt(3) / 2) * SIDE_A // 高 h
 /** 空白颜色索引：-1 表示空白，空白区域不参与连通性计算 */
 export const EMPTY_COLOR_INDEX = -1
 
-/** DFS 求解时的性能统计（用于观察/打印） */
-export interface SolvePerformance {
-  /** 总耗时（毫秒） */
-  elapsedMs: number
-  /** 访问过的不同状态数 */
-  statesVisited: number
-  /** 递归达到的最大深度（步数） */
-  maxDepth: number
-  /** 初始区域数 */
-  initialRegionCount: number
-  /** 是否找到解 */
-  found: boolean
-}
-
 
 /**
  * 游戏网格：使用二维数组存储 colorIndex（索引 < colorCount），不保存颜色表，颜色数量由全局状态决定。
@@ -148,11 +134,6 @@ export class GameGrid {
       grid = data.grid.map(row => [...row])
     }
     return new GameGrid(vside_rows, data.cols, colorCount, grid)
-  }
-
-  /** 状态字符串（用于 BFS 去重） */
-  getStateKey(): string {
-    return this.grid.map(row => row.join(',')).join('|')
   }
 
   /** 将 (startR, startC) 所在联通区域染成新颜色，原地修改 grid，不返回新网格 */

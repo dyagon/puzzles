@@ -53,42 +53,31 @@ const boardHeight = computed(() => props.grid?.height ?? 0)
 const gameGrid = computed(() => props.grid)
 
 // 获取 cell 的颜色字符串（颜色表来自全局 paletteColors）
+// 如果 cell 在高亮列表中，使用高亮颜色；否则使用原始颜色
 const getCellColor = (c: number, r: number): string => {
   if (!gameGrid.value) return '#fff'
+  
+  // 检查是否在高亮列表中
+  if (props.highlightCells && props.highlightCells.length > 0) {
+    const highlightCell = props.highlightCells.find(
+      cell => cell.c === c && cell.r === r
+    )
+    if (highlightCell) {
+      return highlightCell.color
+    }
+  }
+  
+  // 返回原始颜色
   return gameGrid.value.getColorAt(r, c, gameStore.paletteColors)
 }
 
-// 获取 cell 的边框颜色
+// 获取 cell 的边框颜色（始终使用默认值）
 const getCellStroke = (c: number, r: number): string => {
-  if (!props.highlightCells || props.highlightCells.length === 0) {
-    return '#fff'
-  }
-  
-  const highlightCell = props.highlightCells.find(
-    cell => cell.c === c && cell.r === r
-  )
-  
-  if (highlightCell) {
-    return highlightCell.color
-  }
-  
   return '#fff'
 }
 
-// 获取 cell 的边框宽度
+// 获取 cell 的边框宽度（始终使用默认值）
 const getCellStrokeWidth = (c: number, r: number): number => {
-  if (!props.highlightCells || props.highlightCells.length === 0) {
-    return 1
-  }
-  
-  const highlightCell = props.highlightCells.find(
-    cell => cell.c === c && cell.r === r
-  )
-  
-  if (highlightCell) {
-    return 3 // 高亮时使用更粗的边框
-  }
-  
   return 1
 }
 
@@ -151,7 +140,7 @@ const handleCellClick = (c: number, r: number) => {
 
 .triangle-cell {
   cursor: pointer;
-  transition: fill 0.2s, stroke-width 0.15s, stroke 0.15s;
+  transition: fill 0.2s;
 }
 
 .triangle-cell:hover {

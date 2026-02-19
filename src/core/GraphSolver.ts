@@ -38,11 +38,40 @@ export class MultiGraphSolver {
    * [主入口] 执行全局求解
    */
   public solve(): Solution | null {
+    console.log('=== 开始求解 ===')
     // 1. 拆分连通分量
     const builder = new GraphBuilder(this.gameGrid, this.voidColorIndex)
     const islands = builder.buildIslands()
 
-    if (islands.length === 0) return { steps: 0, path: [] }
+    // 打印图信息
+    console.log('\n=== 图信息 ===')
+    console.log(`岛屿数量: ${islands.length}`)
+    
+    let totalRegions = 0
+    islands.forEach((island, index) => {
+      const nodeCount = island.size
+      totalRegions += nodeCount
+      
+      // 统计每个岛屿的颜色分布
+      const colorCounts = new Map<number, number>()
+      for (const node of island.values()) {
+        colorCounts.set(node.color, (colorCounts.get(node.color) || 0) + 1)
+      }
+      
+      const colorInfo = Array.from(colorCounts.entries())
+        .map(([color, count]) => `${this.getColorString(color)}(${count})`)
+        .join(', ')
+      
+      console.log(`岛屿 ${index + 1}: ${nodeCount} 个节点, 颜色分布: [${colorInfo}]`)
+    })
+    
+    console.log(`总联通区域数: ${totalRegions}`)
+    console.log('==============\n')
+
+    if (islands.length === 0) {
+      console.log('无岛屿，返回空解')
+      return { steps: 0, path: [] }
+    }
 
     // --- 优化分支：只有一个岛屿时，目标颜色不限 ---
     if (islands.length === 1) {
@@ -88,10 +117,15 @@ export class MultiGraphSolver {
 
     for (let islandIndex = 0; islandIndex < islands.length; islandIndex++) {
       const island = islands[islandIndex]
+      console.log(`  求解岛屿 ${islandIndex + 1}/${islands.length} (节点数: ${island.size})`)
       const result = this.solveSingleIsland(island, targetColor, islandIndex)
       
-      if (!result) return null
+      if (!result) {
+        console.log(`    岛屿 ${islandIndex + 1} 求解失败`)
+        return null
+      }
 
+      console.log(`    岛屿 ${islandIndex + 1} 求解成功，步数: ${result.steps}`)
       totalSteps += result.steps
       globalPath.push(...result.path)
     }
@@ -110,28 +144,37 @@ export class MultiGraphSolver {
   ): Solution | null {
     // 1. 初始状态检查
     const distinctColors = new Set<number>()
-    let hasTarget = false
     for (const n of nodes.values()) {
       distinctColors.add(n.color)
-      if (targetColor !== null && n.color === targetColor) hasTarget = true
     }
+
+    const targetStr = targetColor === null ? '任意单色' : this.getColorString(targetColor)
+    console.log(`    初始状态: ${distinctColors.size} 种颜色, 目标: ${targetStr}`)
 
     // 成功条件：只剩一种颜色
     if (distinctColors.size === 1) {
         // 如果指定了颜色，必须匹配；没指定颜色，任意单色即成功
         const finalColor = nodes.values().next().value!.color
         if (targetColor === null || finalColor === targetColor) {
+            console.log(`    已是目标状态，无需操作`)
             return { steps: 0, path: [] }
         }
     }
 
     // 2. IDA* 迭代加深搜索
-    const maxDepth = 20 
-    for (let limit = 0; limit <= maxDepth; limit++) {
+    const maxDepth = 20
+    const initialLimit = Math.max(0, distinctColors.size - 1) // 初始深度设为总颜色数减一
+    console.log(`    开始 IDA* 搜索，初始深度: ${initialLimit}, 最大深度: ${maxDepth}`)
+    for (let limit = initialLimit; limit <= maxDepth; limit++) {
+      console.log(`    搜索深度: ${limit}`)
       const result = this.dfs(nodes, 0, limit, [], targetColor, islandIndex)
-      if (result) return result
+      if (result) {
+        console.log(`    在深度 ${limit} 找到解`)
+        return result
+      }
     }
 
+    console.log(`    达到最大深度 ${maxDepth}，未找到解`)
     return null
   }
 
@@ -164,6 +207,9 @@ export class MultiGraphSolver {
       
       // 情况 A: 不需要指定颜色 (null) 或者 颜色已匹配
       if (targetColor === null || finalColor === targetColor) {
+        if (path.length > 0) {
+          console.log(`      [深度 ${g}] 找到解，路径长度: ${path.length}`)
+        }
         return { steps: g, path: this.formatPath(path) }
       }
       
@@ -175,6 +221,7 @@ export class MultiGraphSolver {
           color: targetColor,
           representative: firstNode!.representative
         }
+        console.log(`      [深度 ${g + 1}] 找到解（需额外转色），路径长度: ${path.length + 1}`)
         return { steps: g + 1, path: this.formatPath([...path, extraStep]) }
       } else {
         return null 
@@ -197,8 +244,13 @@ export class MultiGraphSolver {
 
     // --- 4. 生成移动 ---
     const moves = this.getPossibleMoves(nodes)
+    
+    if (g === 0 && moves.length > 0) {
+      console.log(`      生成 ${moves.length} 个可行移动`)
+    }
 
-    for (const move of moves) {
+    for (let i = 0; i < moves.length; i++) {
+      const move = moves[i]
       const nextNodes = this.applyMove(nodes, move.regionId, move.color)
       
       const res = this.dfs(
@@ -296,5 +348,17 @@ export class MultiGraphSolver {
 
   private getColorString(colorIndex: number): string {
     return this.colorPalette[colorIndex] ?? `#Color${colorIndex}`
+  }
+
+  /**
+   * 随机打乱数组（Fisher-Yates 洗牌算法）
+   */
+  private shuffleArray<T>(array: T[]): T[] {
+    const shuffled = [...array]
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+    }
+    return shuffled
   }
 }

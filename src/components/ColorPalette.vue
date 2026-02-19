@@ -10,7 +10,11 @@
     <div class="color-palette-items">
       <!-- 空白选项 -->
       <div
-        :class="['color-swatch', 'empty-swatch', { active: selectedColorIndex === EMPTY_SELECTION_INDEX }]"
+        :class="[
+          'color-swatch',
+          'empty-swatch',
+          { active: selectedColorIndex === EMPTY_SELECTION_INDEX },
+        ]"
         :title="'空白：点击选中，可将区域填为空白（不参与连通）'"
         @click="handleEmptyClick"
       >
@@ -44,12 +48,27 @@
                 :disabled="isOnlySelected(hex)"
                 @change="toggleColor(hex)"
               />
-              <span class="picker-swatch" :style="{ backgroundColor: hex }"></span>
+              <span
+                class="picker-swatch"
+                :style="{ backgroundColor: hex }"
+              ></span>
             </label>
           </div>
           <div class="picker-actions">
-            <button type="button" class="picker-btn cancel" @click="closePicker">取消</button>
-            <button type="button" class="picker-btn confirm" @click="applySelection">确定</button>
+            <button
+              type="button"
+              class="picker-btn cancel"
+              @click="closePicker"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              class="picker-btn confirm"
+              @click="applySelection"
+            >
+              确定
+            </button>
           </div>
         </div>
       </div>
@@ -58,59 +77,63 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useGameStore, EMPTY_SELECTION_INDEX, DEFAULT_COLORS } from '../stores/gameStore'
+import { computed, ref, watch } from "vue";
+import {
+  useGameStore,
+  EMPTY_SELECTION_INDEX,
+  DEFAULT_COLORS,
+} from "../stores/gameStore";
 
-const gameStore = useGameStore()
+const gameStore = useGameStore();
 
-const canEdit = computed(() => gameStore.mode === 'EDIT')
-const colors = computed(() => gameStore.paletteColors)
-const selectedColorIndex = computed(() => gameStore.selectedColorIndex)
+const canEdit = computed(() => gameStore.mode === "EDIT");
+const colors = computed(() => gameStore.paletteColors);
+const selectedColorIndex = computed(() => gameStore.selectedColorIndex);
 
-const showPicker = ref(false)
+const showPicker = ref(false);
 /** 弹窗内当前勾选集合（hex 字符串），与 palette 同步 */
-const selectedSet = ref<Set<string>>(new Set())
+const selectedSet = ref<Set<string>>(new Set());
 
 watch(showPicker, (open) => {
   if (open) {
-    selectedSet.value = new Set(gameStore.paletteColors)
+    selectedSet.value = new Set(gameStore.paletteColors);
   }
-})
+});
 
 /** 当前仅剩该颜色被选中时，不可取消勾选 */
 function isOnlySelected(hex: string): boolean {
-  return selectedSet.value.has(hex) && selectedSet.value.size === 1
+  return selectedSet.value.has(hex) && selectedSet.value.size === 1;
 }
 
 function toggleColor(hex: string) {
-  const next = new Set(selectedSet.value)
+  const next = new Set(selectedSet.value);
   if (next.has(hex)) {
-    if (next.size <= 1) return
-    next.delete(hex)
+    if (next.size <= 1) return;
+    next.delete(hex);
   } else {
-    next.add(hex)
+    next.add(hex);
   }
-  selectedSet.value = next
+  selectedSet.value = next;
 }
 
 function applySelection() {
-  const list = [...DEFAULT_COLORS].filter((c) => selectedSet.value.has(c))
-  if (list.length < 1) return
-  gameStore.setPaletteFromSelection(list)
-  showPicker.value = false
+  const list = [...DEFAULT_COLORS].filter((c) => selectedSet.value.has(c));
+  if (list.length < 1) return;
+  gameStore.setPaletteFromSelection(list);
+  showPicker.value = false;
 }
 
 function closePicker() {
-  showPicker.value = false
+  showPicker.value = false;
 }
 
 const handleEmptyClick = () => {
-  gameStore.setSelectedColorIndex(EMPTY_SELECTION_INDEX)
-}
+  gameStore.setSelectedColorIndex(EMPTY_SELECTION_INDEX);
+};
 
 const handleColorClick = (index: number) => {
-  gameStore.setSelectedColorIndex(index)
-}
+  gameStore.setSelectedColorIndex(index);
+};
 </script>
 
 <style scoped>

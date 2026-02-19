@@ -37,7 +37,7 @@
           >编辑时按住空格 + 移动鼠标可连续上色</span
         >
         <button v-if="gameStore.mode === 'PLAY'" @click="resetGrid">
-          回到编辑状态
+          重置网格
         </button>
         <div v-if="gameStore.mode === 'PLAY'" class="status-panel">
           <div class="status-item">测试步数：{{ gameStore.stepCount }}</div>
@@ -116,17 +116,19 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-/* 右侧：状态 + 控制，统一一列 */
+/* 右侧：状态 + 控制，统一一列，内容过长可滚动 */
 .right-sidebar {
-  width: 300px;
+  width: 320px;
   flex-shrink: 0;
   height: 100%;
+  min-height: 0; /* flex 子项才能正确收缩并出现滚动 */
   display: flex;
   flex-direction: column;
   padding: 20px;
   background: #f5f5f5;
   border-left: 1px solid #ddd;
   gap: 24px;
+  overflow-y: auto;
 }
 
 .status-panel {
@@ -140,6 +142,7 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 16px;
   align-items: flex-start;
+  padding-bottom: 24px;
 }
 
 .mode-switch {
