@@ -72,12 +72,12 @@ const getCellColor = (c: number, r: number): string => {
 }
 
 // 获取 cell 的边框颜色（始终使用默认值）
-const getCellStroke = (c: number, r: number): string => {
+const getCellStroke = (_c: number, _r: number): string => {
   return '#fff'
 }
 
 // 获取 cell 的边框宽度（始终使用默认值）
-const getCellStrokeWidth = (c: number, r: number): number => {
+const getCellStrokeWidth = (_c: number, _r: number): number => {
   return 1
 }
 
