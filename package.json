@@ -3,27 +3,23 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
-    "dev": "concurrently -n g,k,s \"npm run dev:gateway\" \"npm run dev:kami2\" \"npm run dev:sudoku\"",
+    "dev": "concurrently -n g,k,s \"npm run dev:gateway\" \"npm run dev -w apps/kami2\" \"npm run dev -w apps/sudoku\"",
     "dev:gateway": "vite",
-    "dev:kami2": "vite --config apps/kami2/vite.config.ts",
-    "dev:sudoku": "vite --config apps/sudoku/vite.config.ts",
-    "build": "vue-tsc -b && npm run build:kami2 && npm run build:sudoku",
-    "build:kami2": "vite build --config apps/kami2/vite.config.ts",
-    "build:sudoku": "vite build --config apps/sudoku/vite.config.ts",
-    "preview:kami2": "vite preview --config apps/kami2/vite.config.ts --port 5174",
-    "preview:sudoku": "vite preview --config apps/sudoku/vite.config.ts --port 5175"
-  },
-  "dependencies": {
-    "pinia": "^3.0.4",
-    "vue": "^3.5.13"
+    "dev:kami2": "npm run dev -w apps/kami2",
+    "dev:sudoku": "npm run dev -w apps/sudoku",
+    "build": "npm run build --workspaces",
+    "build:kami2": "npm run build -w apps/kami2",
+    "build:sudoku": "npm run build -w apps/sudoku",
+    "preview:kami2": "npm run preview -w apps/kami2",
+    "preview:sudoku": "npm run preview -w apps/sudoku"
   },
   "devDependencies": {
     "@types/node": "^25.3.1",
-    "@vitejs/plugin-vue": "^5.2.1",
     "concurrently": "^9.2.1",
-    "typescript": "~5.6.2",
-    "vite": "^6.0.3",
-    "vue-tsc": "^2.1.10"
+    "vite": "^6.0.3"
   }
 }

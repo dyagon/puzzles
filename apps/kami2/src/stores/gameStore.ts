@@ -54,8 +54,8 @@ export const useGameStore = defineStore('game', () => {
   const highlightCells = ref<Array<{ r: number; c: number; color: string }>>([])
   const initialGameGridForSolution = ref<GameGrid | null>(null)
   const isBlinking = ref(false)
-  let blinkTimer: number | null = null
-  let editGraphInfoTimer: number | null = null
+  let blinkTimer: ReturnType<typeof setInterval> | null = null
+  let editGraphInfoTimer: ReturnType<typeof setTimeout> | null = null
 
   // 计算属性
   const regionCount = computed(() => {
