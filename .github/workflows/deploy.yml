@@ -1,36 +1,36 @@
-name: Deploy to Local K8s
+# name: Deploy to Local K8s
 
-on:
-  push:
-    branches: [ "main" ] # 监听 main 分支的提交
+# on:
+#   push:
+#     branches: [ "main" ] # 监听 main 分支的提交
 
-jobs:
-  build-and-deploy:
-    # 关键：指定运行在你自己配置的 self-hosted runner 上
-    runs-on: self-hosted
+# jobs:
+#   build-and-deploy:
+#     # 关键：指定运行在你自己配置的 self-hosted runner 上
+#     runs-on: self-hosted
 
-    steps:
-    - name: Checkout Code
-      uses: actions/checkout@v3
+#     steps:
+#     - name: Checkout Code
+#       uses: actions/checkout@v3
 
-    - name: Build Docker Image
-      run: |
-        echo "开始构建 Docker 镜像..."
-        # 注意 image tag 包含了本地仓库地址 localhost:5000
-        docker build -t localhost:5000/vue-app:latest .
+#     - name: Build Docker Image
+#       run: |
+#         echo "开始构建 Docker 镜像..."
+#         # 注意 image tag 包含了本地仓库地址 localhost:5000
+#         docker build -t localhost:5000/vue-app:latest .
 
-    - name: Push to Local Registry
-      run: |
-        echo "推送到本地 Registry..."
-        docker push localhost:5000/vue-app:latest
+#     - name: Push to Local Registry
+#       run: |
+#         echo "推送到本地 Registry..."
+#         docker push localhost:5000/vue-app:latest
 
-    - name: Deploy to K8s
-      run: |
-        echo "部署到 OrbStack K8s..."
-        # 应用 K8s 配置
-        kubectl apply -f k8s-deploy.yaml
+#     - name: Deploy to K8s
+#       run: |
+#         echo "部署到 OrbStack K8s..."
+#         # 应用 K8s 配置
+#         kubectl apply -f k8s-deploy.yaml
         
-        # 强制重启 Pod 以加载最新镜像（因为 tag 都是 latest，K8s 有时不知道变了）
-        kubectl rollout restart deployment/vue-app-deployment
+#         # 强制重启 Pod 以加载最新镜像（因为 tag 都是 latest，K8s 有时不知道变了）
+#         kubectl rollout restart deployment/vue-app-deployment
         
-        echo "部署完成！"
+#         echo "部署完成！"

@@ -7,13 +7,16 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently -n g,k,s \"npm run dev:gateway\" \"npm run dev -w apps/kami2\" \"npm run dev -w apps/sudoku\"",
+    "dev": "concurrently -n g,m,k,s \"npm run dev:gateway\" \"npm run dev -w apps/main\" \"npm run dev -w apps/kami2\" \"npm run dev -w apps/sudoku\"",
     "dev:gateway": "vite",
+    "dev:main": "npm run dev -w apps/main",
     "dev:kami2": "npm run dev -w apps/kami2",
     "dev:sudoku": "npm run dev -w apps/sudoku",
     "build": "npm run build --workspaces",
+    "build:main": "npm run build -w apps/main",
     "build:kami2": "npm run build -w apps/kami2",
     "build:sudoku": "npm run build -w apps/sudoku",
+    "preview:main": "npm run preview -w apps/main",
     "preview:kami2": "npm run preview -w apps/kami2",
     "preview:sudoku": "npm run preview -w apps/sudoku"
   },
