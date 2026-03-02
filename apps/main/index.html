@@ -5,17 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Puzzles</title>
     <style>
-      body { font-family: system-ui; padding: 2rem; background: #1a1a2e; color: #eee; }
-      a { color: #7eb8da; }
-      ul { list-style: none; padding: 0; }
-      li { margin: 0.5rem 0; }
+      body { font-family: system-ui; margin: 0; background: #1a1a2e; color: #eee; min-height: 100vh; }
     </style>
   </head>
   <body>
-    <h1>Puzzles</h1>
-    <ul>
-      <li><a href="/kami2/">Kami2</a></li>
-      <li><a href="/sudoku/">Sudoku</a></li>
-    </ul>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
