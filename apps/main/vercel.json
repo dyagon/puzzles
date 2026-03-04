@@ -1,0 +1,21 @@
+{
+    "rewrites": [
+      {
+        "source": "/kami2",
+        "destination": "puzzles-kami2.vercel.app/kami2/"
+      },
+      {
+        "source": "/kami2/:match*",
+        "destination": "puzzles-kami2.vercel.app/kami2/:match*"
+      },
+      {
+        "source": "/sudoku",
+        "destination": "puzzles-sudoku.vercel.app/sudoku/"
+      },
+      {
+        "source": "/sudoku/:match*",
+        "destination": "puzzles-sudoku.vercel.app/sudoku/:match*"
+      }
+    ]
+  }
+  
