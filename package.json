@@ -3,26 +3,21 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "workspaces": [
-    "apps/*"
-  ],
   "scripts": {
-    "dev": "concurrently -n g,m,k,s \"npm run dev:gateway\" \"npm run dev -w apps/main\" \"npm run dev -w apps/kami2\" \"npm run dev -w apps/sudoku\"",
-    "dev:gateway": "vite",
-    "dev:main": "npm run dev -w apps/main",
-    "dev:kami2": "npm run dev -w apps/kami2",
-    "dev:sudoku": "npm run dev -w apps/sudoku",
-    "build": "npm run build --workspaces",
-    "build:main": "npm run build -w apps/main",
-    "build:kami2": "npm run build -w apps/kami2",
-    "build:sudoku": "npm run build -w apps/sudoku",
-    "preview:main": "npm run preview -w apps/main",
-    "preview:kami2": "npm run preview -w apps/kami2",
-    "preview:sudoku": "npm run preview -w apps/sudoku"
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pinia": "^3.0.4",
+    "vue": "^3.5.13",
+    "vue-router": "^4.4.5"
   },
   "devDependencies": {
     "@types/node": "^25.3.1",
-    "concurrently": "^9.2.1",
-    "vite": "^6.0.3"
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.3",
+    "vue-tsc": "^2.1.10"
   }
 }
