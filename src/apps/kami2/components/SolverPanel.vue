@@ -10,13 +10,13 @@
           :disabled="true"
           class="solve-button"
         >
-          求解中...
+          {{ t('kami2.solving') }}
         </button>
         <button 
           @click="handleTerminate" 
           class="terminate-button"
         >
-          终止求解
+          {{ t('kami2.terminate') }}
         </button>
       </div>
       <button 
@@ -24,12 +24,14 @@
         @click="handleSolve" 
         class="solve-button"
       >
-        求解最少步骤
+        {{ t('kami2.solveButtonIdlePlay') }}
       </button>
       
       <div v-if="gameStore.solution" class="solution-header">
-        <div class="solution-title">最优解步骤：</div>
-        <div class="solution-steps-count">{{ gameStore.solution.steps }} 步</div>
+        <div class="solution-title">{{ t('kami2.solutionHeader') }}</div>
+        <div class="solution-steps-count">
+          {{ t('kami2.solutionInfoSteps') }}{{ gameStore.solution.steps }}
+        </div>
       </div>
     </template>
     
@@ -41,13 +43,13 @@
           :disabled="true"
           class="solve-button"
         >
-          求解中...
+          {{ t('kami2.solving') }}
         </button>
         <button 
           @click="handleTerminate" 
           class="terminate-button"
         >
-          终止求解
+          {{ t('kami2.terminate') }}
         </button>
       </div>
       <button 
@@ -55,15 +57,21 @@
         @click="handleSolve" 
         class="solve-button"
       >
-        求解最优解
+        {{ t('kami2.solveButtonIdleEdit') }}
       </button>
     </template>
 
     <!-- 解信息（得到解后显示） -->
     <div v-if="gameStore.solutionMetadata" class="solve-info">
-      <div class="info-title">解信息</div>
-      <div class="info-row"><span class="info-label">最少步数：</span>{{ gameStore.solution?.steps ?? '-' }}</div>
-      <div class="info-row"><span class="info-label">解法：</span>{{ gameStore.solutionMetadata.method }}</div>
+      <div class="info-title">{{ t('kami2.solutionInfoTitle') }}</div>
+      <div class="info-row">
+        <span class="info-label">{{ t('kami2.solutionInfoSteps') }}</span>
+        {{ gameStore.solution?.steps ?? '-' }}
+      </div>
+      <div class="info-row">
+        <span class="info-label">{{ t('kami2.solutionInfoMethod') }}</span>
+        {{ gameStore.solutionMetadata.method }}
+      </div>
     </div>
 
     <!-- 显示解决方案步骤 -->
@@ -76,9 +84,13 @@
         @click="handleStepClick(index)"
       >
         <div class="step-content">
-          <span class="step-number">步骤 {{ index + 1 }}:</span>
+          <span class="step-number">
+            {{ t('kami2.stepPrefix', { index: index + 1 }) }}
+          </span>
           <span class="step-color-swatch" :style="{ backgroundColor: step.color }"></span>
-          <span class="step-text">将位置({{ step.region.r }}, {{ step.region.c }})所在的区域染成此颜色</span>
+          <span class="step-text">
+            {{ t('kami2.stepDescription', { row: step.region.r, col: step.region.c }) }}
+          </span>
         </div>
       </div>
     </div>
@@ -86,9 +98,11 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { useGameStore } from '../stores/gameStore'
 
 const gameStore = useGameStore()
+const { t } = useI18n()
 
 const handleSolve = () => {
   gameStore.solvePuzzle()

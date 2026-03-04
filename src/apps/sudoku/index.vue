@@ -1,6 +1,6 @@
 <template>
   <div class="sudoku-app">
-    <h1>数独</h1>
+    <h1>{{ t('sudoku.title') }}</h1>
     <div class="board-wrap">
       <div class="board" :class="{ 'show-errors': showErrors }">
         <div
@@ -34,10 +34,10 @@
       </div>
     </div>
     <div class="actions">
-      <button type="button" @click="reset">重置</button>
+      <button type="button" @click="reset">{{ t('sudoku.reset') }}</button>
       <label class="toggle">
         <input v-model="showErrors" type="checkbox" />
-        显示错误
+        {{ t('sudoku.showErrors') }}
       </label>
     </div>
   </div>
@@ -45,11 +45,14 @@
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 interface Cell {
   value: number | null
   fixed: boolean
 }
+
+const { t } = useI18n()
 
 // 示例：简单初盘（0 表示空格）
 const initial = [

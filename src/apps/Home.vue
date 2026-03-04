@@ -1,10 +1,13 @@
 <template>
   <div class="page">
-    <p class="intro">选择上方导航进入对应谜题应用。</p>
+    <p class="intro">{{ t('home.intro') }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 </script>
 
 <style scoped>

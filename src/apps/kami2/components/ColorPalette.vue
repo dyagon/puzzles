@@ -3,7 +3,7 @@
     <!-- 编辑模式：当前调色板 + 打开弹窗按钮 -->
     <div v-if="canEdit" class="color-edit-row">
       <button type="button" class="open-picker-btn" @click="showPicker = true">
-        选择颜色 ({{ colors.length }})
+        {{ t('kami2.paletteChoose', { count: colors.length }) }}
       </button>
     </div>
 
@@ -15,7 +15,7 @@
           'empty-swatch',
           { active: selectedColorIndex === EMPTY_SELECTION_INDEX },
         ]"
-        :title="'空白：点击选中，可将区域填为空白（不参与连通）'"
+        :title="t('kami2.emptyTooltip')"
         @click="handleEmptyClick"
       >
         <span class="empty-icon">∅</span>
@@ -34,7 +34,7 @@
     <Teleport to="body">
       <div v-if="showPicker" class="picker-overlay" @click.self="closePicker">
         <div class="picker-modal">
-          <div class="picker-title">选择使用的颜色（至少 1 个）</div>
+          <div class="picker-title">{{ t('kami2.paletteDialogTitle') }}</div>
           <div class="picker-list">
             <label
               v-for="(hex, i) in DEFAULT_COLORS"
@@ -60,14 +60,14 @@
               class="picker-btn cancel"
               @click="closePicker"
             >
-              取消
+              {{ t('kami2.dialogCancel') }}
             </button>
             <button
               type="button"
               class="picker-btn confirm"
               @click="applySelection"
             >
-              确定
+              {{ t('kami2.dialogConfirm') }}
             </button>
           </div>
         </div>
@@ -78,6 +78,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import {
   useGameStore,
   EMPTY_SELECTION_INDEX,
@@ -85,6 +86,7 @@ import {
 } from "../stores/gameStore";
 
 const gameStore = useGameStore();
+const { t } = useI18n();
 
 const canEdit = computed(() => gameStore.mode === "EDIT");
 const colors = computed(() => gameStore.paletteColors);

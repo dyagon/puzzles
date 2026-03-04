@@ -27,7 +27,7 @@
               :class="{ active: gameStore.mode === 'EDIT' }"
               @click="handleModeChange('EDIT')"
             >
-              编辑
+              {{ t('kami2.modeEdit') }}
             </button>
             <button
               type="button"
@@ -35,19 +35,21 @@
               :class="{ active: gameStore.mode === 'PLAY' }"
               @click="handleModeChange('PLAY')"
             >
-              测试
+              {{ t('kami2.modePlay') }}
             </button>
           </div>
           <ColorPalette />
           <GraphInfoPanel />
-          <span v-if="gameStore.mode === 'EDIT'" class="edit-tip"
-            >编辑时按住空格 + 移动鼠标可连续上色</span
-          >
+          <span v-if="gameStore.mode === 'EDIT'" class="edit-tip">
+            {{ t('kami2.editHint') }}
+          </span>
           <button v-if="gameStore.mode === 'PLAY'" @click="resetGrid">
-            重置网格
+            {{ t('kami2.resetGrid') }}
           </button>
           <div v-if="gameStore.mode === 'PLAY'" class="status-panel">
-            <div class="status-item">测试步数：{{ gameStore.stepCount }}</div>
+            <div class="status-item">
+              {{ t('kami2.testSteps', { count: gameStore.stepCount }) }}
+            </div>
           </div>
           <SolverPanel />
         </div>
@@ -58,6 +60,7 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, computed } from "vue";
+import { useI18n } from "vue-i18n";
 import { useGameStore } from "./stores/gameStore";
 import { TRI_H } from "./core/GameGrid";
 import GameBoard from "./components/GameBoard.vue";
@@ -66,6 +69,7 @@ import GraphInfoPanel from "./components/GraphInfoPanel.vue";
 import SolverPanel from "./components/SolverPanel.vue";
 
 const gameStore = useGameStore();
+const { t } = useI18n();
 
 const boardAreaStyle = computed(() => {
   const g = gameStore.gameGrid;
